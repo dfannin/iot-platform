@@ -1,0 +1,27 @@
+# mqtt2sqlite configuration
+# Install as /etc/mqtt2sqlite/mqtt2sqlite.ini (owner root, group telemetry, mode 640).
+
+[mqtt]
+host = localhost
+port = 1883
+# MQTT user for the ingester (it only needs to read telemetry/#)
+username = telemetry
+password = CHANGE_ME
+topic = telemetry/#
+client_id = mqtt2sqlite
+# TLS (not needed when the broker is on the same machine)
+tls = false
+ca_file =
+
+[database]
+path = /var/lib/telemetry/telemetry.db
+# Seconds between database writes (batching keeps eMMC writes low)
+flush_interval_s = 60
+# 5-minute rows older than this are deleted once a day; hourly summaries are kept forever
+raw_retention_days = 730
+# Used when a message has no interval_s
+default_interval_s = 300
+
+[log]
+# DEBUG logs every write; INFO logs an hourly summary
+level = INFO

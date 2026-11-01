@@ -1,0 +1,35 @@
+[Unit]
+Description=MQTT telemetry to SQLite (esp32-monitor)
+Documentation=https://github.com/dfannin/esp32-monitor/tree/main/server
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=telemetry
+Group=telemetry
+ExecStart=/opt/mqtt2sqlite/venv/bin/python /opt/mqtt2sqlite/mqtt2sqlite.py --config /etc/mqtt2sqlite/mqtt2sqlite.ini
+Restart=on-failure
+RestartSec=10
+
+# Database directory, created by the install steps with mode 2775 (setgid), so
+# every database file belongs to group telemetry and is group-writable. Grafana
+# (supplementary group telemetry) needs this to read a WAL database: SQLite
+# readers must be able to create and write the -shm file.
+ReadWritePaths=/var/lib/telemetry
+UMask=0002
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target
