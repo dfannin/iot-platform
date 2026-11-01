@@ -1,0 +1,45 @@
+# mqtt2slack configuration
+# Install as /etc/mqtt2slack/mqtt2slack.ini (owner root, group telemetry, mode 640):
+# it holds the Slack bot token.
+
+[mqtt]
+host = localhost
+port = 1883
+# MQTT user that can read sensor/# (the telemetry user can be given both topics)
+username = telemetry
+password = CHANGE_ME
+topic = sensor/#
+client_id = mqtt2slack
+tls = false
+ca_file =
+
+[slack]
+# Bot token (xoxb-...) with the chat:write scope; the bot must be in the channel
+token = xoxb-CHANGE_ME
+# Channel ID (not the name). #test while testing, #alerts afterwards.
+channel = C0CE0HGN709
+# Seconds between posts (Slack allows about 1 message per second per channel)
+min_interval_s = 1
+# Alerts that could not be sent for this long are combined into one summary
+max_age_hours = 24
+timeout_s = 10
+
+[alerts]
+# States that are not posted when a topic is seen for the first time
+normal_states = OK, ONLINE, CLOSED, REPORTING
+# Watchdog: STALE when a hub has sent nothing for this long
+stale_minutes = 15
+check_interval_s = 60
+
+[reminders]
+# STATE = hours: post again every N hours while a topic stays in that state (0 = off)
+COLD = 6
+
+[database]
+# Alert state and outbox (needed for restarts without duplicate posts)
+state_path = /var/lib/telemetry/mqtt2slack-state.db
+# Alert history for Grafana; leave empty to turn off
+history_path = /var/lib/telemetry/telemetry.db
+
+[log]
+level = INFO

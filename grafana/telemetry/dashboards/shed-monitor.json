@@ -54,7 +54,31 @@
     ]
   },
   "annotations": {
-    "list": []
+    "list": [
+      {
+        "name": "Alerts",
+        "enable": true,
+        "iconColor": "red",
+        "datasource": {
+          "type": "frser-sqlite-datasource",
+          "uid": "telemetry-sqlite"
+        },
+        "target": {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "telemetry-sqlite"
+          },
+          "refId": "Anno",
+          "queryType": "table",
+          "rawQueryText": "SELECT ts AS time, hub || ' ' || sensor || ': ' || state || COALESCE(' (' || NULLIF(reason, '') || ')', '') AS text, state AS tags FROM alerts WHERE ts >= $__from / 1000 AND ts < $__to / 1000 AND kind != 'reminder' ORDER BY ts",
+          "queryText": "SELECT ts AS time, hub || ' ' || sensor || ': ' || state || COALESCE(' (' || NULLIF(reason, '') || ')', '') AS text, state AS tags FROM alerts WHERE ts >= $__from / 1000 AND ts < $__to / 1000 AND kind != 'reminder' ORDER BY ts",
+          "timeColumns": [
+            "time",
+            "ts"
+          ]
+        }
+      }
+    ]
   },
   "panels": [
     {
@@ -1427,6 +1451,116 @@
         "y": 37,
         "w": 8,
         "h": 7
+      }
+    },
+    {
+      "type": "table",
+      "title": "Recent alerts",
+      "description": "Every Slack alert from mqtt2slack in the selected time range (newest first).",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "telemetry-sqlite"
+          },
+          "refId": "A",
+          "queryType": "table",
+          "rawQueryText": "SELECT ts AS time, hub, sensor, state, previous, reason, kind FROM alerts WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts DESC LIMIT 200",
+          "queryText": "SELECT ts AS time, hub, sensor, state, previous, reason, kind FROM alerts WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts DESC LIMIT 200",
+          "timeColumns": [
+            "time",
+            "ts"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "time"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "state"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "OK": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "ONLINE": {
+                        "color": "green",
+                        "index": 1
+                      },
+                      "REPORTING": {
+                        "color": "green",
+                        "index": 2
+                      },
+                      "CLOSED": {
+                        "color": "green",
+                        "index": 3
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 17,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "telemetry-sqlite"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 24,
+        "h": 9
       }
     }
   ]

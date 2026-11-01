@@ -1,0 +1,32 @@
+[Unit]
+Description=Slack alerts for MQTT state changes (esp32-monitor, esp32-door)
+Documentation=https://github.com/dfannin/esp32-monitor/tree/main/server
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=telemetry
+Group=telemetry
+ExecStart=/opt/mqtt2slack/venv/bin/python /opt/mqtt2slack/mqtt2slack.py --config /etc/mqtt2slack/mqtt2slack.ini
+Restart=always
+RestartSec=10
+
+# State and alert history live in /var/lib/telemetry (see mqtt2sqlite.service)
+ReadWritePaths=/var/lib/telemetry
+UMask=0002
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target
