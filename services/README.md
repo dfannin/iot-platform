@@ -230,10 +230,16 @@ echo "deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stab
 sudo apt update && sudo apt install grafana
 ```
 
-Install the SQLite plugin:
+Install the SQLite plugin. Newer Grafana packages need the install folder (`--homepath`) and the config (`--config`, so the plugin goes into `/var/lib/grafana/plugins`); the older `grafana-cli` command fails with "Could not find config defaults":
 
 ```bash
-sudo grafana-cli plugins install frser-sqlite-datasource
+sudo grafana cli --homepath /usr/share/grafana --config /etc/grafana/grafana.ini plugins install frser-sqlite-datasource
+```
+
+Check that it is listed:
+
+```bash
+sudo grafana cli --homepath /usr/share/grafana --config /etc/grafana/grafana.ini plugins ls
 ```
 
 Let Grafana read the database. This is a systemd drop-in that adds the `telemetry` group and write access to the database directory, which SQLite needs for its `-shm` file:
@@ -288,11 +294,11 @@ Flash esp32-monitor v1.8. The first telemetry arrives 5 minutes after it boots.
 
 | Section | Panels |
 |---------|--------|
-| Top row | Latest battery voltage and current, solar current, temperature, humidity and RSSI, colored by the alarm thresholds |
+| Top row | Latest battery voltage and current, solar current, temperature, humidity and the ESP32's WiFi RSSI, colored by the alarm thresholds |
 | Power | Battery voltage, battery current and solar current (average line with a min–max band), and power |
 | Environment | Temperature and humidity, with lines at the alarm thresholds |
 | Daily energy | Battery charged and discharged and solar Wh per day, for the last 30 days |
-| Device | RSSI, free memory and uptime (drops show reboots) |
+| ESP32 | The shed ESP32's WiFi RSSI, free heap and uptime (drops show reboots). These are the ESP32's own values, not the server's: about 140 KiB free heap (of about 320 KB RAM) is normal. |
 | Recent alerts | Every alert from `mqtt2slack` in the time range |
 
 Alerts are also drawn as red markers on every graph (the **Alerts** annotation). Reminders are left out of the markers. The markers can be turned off at the top of the dashboard.

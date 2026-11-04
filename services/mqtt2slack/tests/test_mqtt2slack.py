@@ -343,9 +343,9 @@ class OutboxTests(AlerterTestBase):
         self.assertEqual(len(self.slack.posts), 1)
 
     def test_history_failure_does_not_block_slack(self):
-        bad = s.History(os.path.join(self.tmp.name, "missing-dir", "x.db"))
-        self.alerter.history = bad
         with self.assertLogs("mqtt2slack", level="WARNING"):
+            bad = s.History(os.path.join(self.tmp.name, "missing-dir", "x.db"))
+            self.alerter.history = bad
             self.queue_alerts(1)
         self.alerter.send_due(self.slack, T0)
         self.assertEqual(len(self.slack.posts), 1)
