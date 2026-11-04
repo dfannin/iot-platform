@@ -296,12 +296,14 @@ Flash esp32-monitor v1.8. The first telemetry arrives 5 minutes after it boots.
 |---------|--------|
 | Top row | Latest battery voltage and current, solar current, temperature, humidity and the ESP32's WiFi RSSI, colored by the alarm thresholds |
 | Power | Battery voltage, battery current and solar current (average line with a min–max band), and power |
-| Environment | Temperature and humidity, with lines at the alarm thresholds |
+| Environment | Temperature (°F) and humidity, with lines at the alarm thresholds (COLD 35.6 °F, HOT 113 °F, HUMID 85 %RH) |
 | Daily energy | Battery charged and discharged and solar Wh per day, for the last 30 days |
 | ESP32 | The shed ESP32's WiFi RSSI, free heap and uptime (drops show reboots). These are the ESP32's own values, not the server's: about 140 KiB free heap (of about 320 KB RAM) is normal. |
 | Recent alerts | Every alert from `mqtt2slack` in the time range |
 
 Alerts are also drawn as red markers on every graph (the **Alerts** annotation). Reminders are left out of the markers. The markers can be turned off at the top of the dashboard.
+
+The database stores temperature in °C (`temperature_c`); the dashboard queries convert it to °F (`temperature_c * 1.8 + 32`). Grafana's °F unit only changes the label, so the conversion has to be in the query.
 
 Two variables at the top:
 - **Resolution:** `5m` (5-minute points) or `1h` (hourly summaries). Use `1h` for ranges longer than about a month: it is faster, and 5-minute data is only kept for 2 years.

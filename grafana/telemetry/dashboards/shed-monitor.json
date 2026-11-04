@@ -290,8 +290,8 @@
           },
           "refId": "A",
           "queryType": "table",
-          "rawQueryText": "SELECT ts AS time, temperature_c AS value FROM env_5m WHERE hub = '$hub' AND sensor = 'env' ORDER BY ts DESC LIMIT 1",
-          "queryText": "SELECT ts AS time, temperature_c AS value FROM env_5m WHERE hub = '$hub' AND sensor = 'env' ORDER BY ts DESC LIMIT 1",
+          "rawQueryText": "SELECT ts AS time, (temperature_c * 1.8 + 32) AS value FROM env_5m WHERE hub = '$hub' AND sensor = 'env' ORDER BY ts DESC LIMIT 1",
+          "queryText": "SELECT ts AS time, (temperature_c * 1.8 + 32) AS value FROM env_5m WHERE hub = '$hub' AND sensor = 'env' ORDER BY ts DESC LIMIT 1",
           "timeColumns": [
             "time",
             "ts"
@@ -300,7 +300,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "celsius",
+          "unit": "fahrenheit",
           "decimals": 1,
           "thresholds": {
             "mode": "absolute",
@@ -311,11 +311,11 @@
               },
               {
                 "color": "green",
-                "value": 2
+                "value": 35.6
               },
               {
                 "color": "red",
-                "value": 45
+                "value": 113
               }
             ]
           },
@@ -934,7 +934,7 @@
     {
       "type": "timeseries",
       "title": "Shed temperature",
-      "description": "Lines at the COLD (2 C) and HOT (45 C) alarm levels.",
+      "description": "In Fahrenheit (stored in Celsius). Lines at the COLD (35.6 F = 2 C) and HOT (113 F = 45 C) alarm levels.",
       "targets": [
         {
           "datasource": {
@@ -943,8 +943,8 @@
           },
           "refId": "A",
           "queryType": "table",
-          "rawQueryText": "SELECT ts AS time, temperature_c_min AS \"min\", temperature_c AS \"avg\", temperature_c_max AS \"max\" FROM env_${res} WHERE hub = '$hub' AND sensor = 'env' AND ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts",
-          "queryText": "SELECT ts AS time, temperature_c_min AS \"min\", temperature_c AS \"avg\", temperature_c_max AS \"max\" FROM env_${res} WHERE hub = '$hub' AND sensor = 'env' AND ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts",
+          "rawQueryText": "SELECT ts AS time, (temperature_c_min * 1.8 + 32) AS \"min\", (temperature_c * 1.8 + 32) AS \"avg\", (temperature_c_max * 1.8 + 32) AS \"max\" FROM env_${res} WHERE hub = '$hub' AND sensor = 'env' AND ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts",
+          "queryText": "SELECT ts AS time, (temperature_c_min * 1.8 + 32) AS \"min\", (temperature_c * 1.8 + 32) AS \"avg\", (temperature_c_max * 1.8 + 32) AS \"max\" FROM env_${res} WHERE hub = '$hub' AND sensor = 'env' AND ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts",
           "timeColumns": [
             "time",
             "ts"
@@ -953,7 +953,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "celsius",
+          "unit": "fahrenheit",
           "color": {
             "mode": "palette-classic"
           },
@@ -977,11 +977,11 @@
               },
               {
                 "color": "green",
-                "value": 2
+                "value": 35.6
               },
               {
                 "color": "red",
-                "value": 45
+                "value": 113
               }
             ]
           }
