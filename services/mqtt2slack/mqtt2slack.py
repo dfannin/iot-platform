@@ -22,6 +22,9 @@ Features:
   OFFLINE last will is not reported STALE (OFFLINE was already posted).
 * Reminders: a state listed in [reminders] (e.g. COLD = 6) is posted again
   every N hours while it lasts.
+* Delays: a change to a state listed in [delays] (e.g. OFFLINE = 15) is only
+  posted if it lasts N minutes. A reboot or a short WiFi drop then causes no
+  OFFLINE / ONLINE posts; it is recorded in the history as kind "brief".
 * Outbox: alerts are saved to disk and sent in order, at most one per
   min_interval_s. If Slack or the internet is down they are retried with
   backoff; alerts older than max_age_hours are combined into one summary.
@@ -81,6 +84,9 @@ DEFAULTS = {
     },
     "reminders": {
         "COLD": "6",
+    },
+    "delays": {
+        "OFFLINE": "15",
     },
     "database": {
         "state_path": "/var/lib/telemetry/mqtt2slack-state.db",
@@ -238,6 +244,18 @@ class HubState:
     offline: bool
 
 
+@dataclass
+class Pending:
+    """A change to a delayed state, not posted yet."""
+    state: str
+    previous: Optional[str]
+    hub: str
+    sensor: str
+    started: float     # when the state started (device time if known)
+    received: float    # when the message arrived (the delay counts from here)
+    reason: str
+
+
 class StateStore:
     """Small SQLite file with the alert state and the Slack outbox."""
 
@@ -337,12 +355,17 @@ class Alerter:
     def __init__(self, store: StateStore, history: Optional[History], *,
                  normal_states=("OK", "ONLINE", "CLOSED", "REPORTING"),
                  stale_minutes: float = 15, reminders: Optional[Dict[str, float]] = None,
+                 delays: Optional[Dict[str, float]] = None,
                  min_interval_s: float = 1, max_age_hours: float = 24):
         self.store = store
         self.history = history
         self.normal_states = {s.strip().upper() for s in normal_states if s.strip()}
         self.stale_s = stale_minutes * 60
         self.reminders = {k.upper(): v for k, v in (reminders or {}).items() if v > 0}
+        # state -> seconds; kept in memory only: after a restart the retained message
+        # is compared with the saved state again, so a pending change starts over
+        self.delays = {k.upper(): v * 60 for k, v in (delays or {}).items() if v > 0}
+        self.pending: Dict[str, Pending] = {}
         self.min_interval_s = min_interval_s
         self.max_age_s = max_age_hours * 3600
         self.topics = store.topics()
@@ -379,6 +402,22 @@ class Alerter:
         reason = p.get("reason") if isinstance(p.get("reason"), str) else ""
         previous = self.topics.get(topic)
 
+        pending = self.pending.get(topic)
+        if pending is not None:
+            if state == pending.state:
+                return                               # still in the delayed state
+            del self.pending[topic]
+            if previous is not None and previous.state == state:
+                # Back to the previous state before the delay ran out: post nothing,
+                # but keep a record (e.g. a reboot: OFFLINE for 2 min, then ONLINE)
+                lasted = duration(received - pending.received)
+                LOG.info("%s: %s lasted only %s, not posted", topic, pending.state, lasted)
+                if self.history is not None:
+                    self.history.record(pending.received, hub, sensor, topic, pending.state,
+                                        pending.previous, f"{pending.reason} ({lasted})".strip(),
+                                        "brief", "")
+                return
+
         if previous is not None and previous.state == state:
             return                                   # no change (periodic update or replay)
         if previous is None and state in self.normal_states:
@@ -388,6 +427,10 @@ class Alerter:
             return
 
         prev_state = previous.state if previous else None
+        if state in self.delays:
+            LOG.info("%s: %s, posted if it lasts %s", topic, state, duration(self.delays[state]))
+            self.pending[topic] = Pending(state, prev_state, hub, sensor, when, received, reason)
+            return
         text = format_alert(hub, sensor, state, topic, when, previous=prev_state,
                             reason=reason, values=format_values(p))
         self._alert(received, hub, sensor, topic, state, prev_state, reason, "change", text)
@@ -422,7 +465,19 @@ class Alerter:
     # -- periodic checks --
 
     def tick(self, now: float) -> None:
-        """Watchdog and reminders; call about once a minute."""
+        """Watchdog, delayed changes and reminders; call about once a minute."""
+        for topic, pd in list(self.pending.items()):
+            if now - pd.received >= self.delays[pd.state]:
+                del self.pending[topic]
+                _, p = self.latest.get(topic, (None, {}))
+                text = format_alert(pd.hub, pd.sensor, pd.state, topic, pd.started,
+                                    previous=pd.previous, reason=pd.reason, values=format_values(p),
+                                    suffix=f"(for {duration(now - pd.received)})")
+                self._alert(now, pd.hub, pd.sensor, topic, pd.state, pd.previous, pd.reason,
+                            "change", text)
+                self.topics[topic] = TopicState(topic, pd.hub, pd.sensor, pd.state, pd.started, now)
+                self.store.save_topic(self.topics[topic])
+
         for hub, h in self.hubs.items():
             if not h.stale and not h.offline and h.last_seen > 0 and now - h.last_seen > self.stale_s:
                 h.stale = True
@@ -530,10 +585,12 @@ def make_alerter(cfg: configparser.ConfigParser) -> Alerter:
     history = History(db["history_path"]) if db["history_path"] else None
     a, s = cfg["alerts"], cfg["slack"]
     reminders = {state: float(hours) for state, hours in cfg["reminders"].items()}
+    delays = {state: float(minutes) for state, minutes in cfg["delays"].items()}
     return Alerter(StateStore(db["state_path"]), history,
                    normal_states=a["normal_states"].split(","),
                    stale_minutes=a.getfloat("stale_minutes"),
                    reminders=reminders,
+                   delays=delays,
                    min_interval_s=s.getfloat("min_interval_s"),
                    max_age_hours=s.getfloat("max_age_hours"))
 

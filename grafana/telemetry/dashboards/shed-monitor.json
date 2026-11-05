@@ -70,8 +70,8 @@
           },
           "refId": "Anno",
           "queryType": "table",
-          "rawQueryText": "SELECT ts AS time, hub || ' ' || sensor || ': ' || state || COALESCE(' (' || NULLIF(reason, '') || ')', '') AS text, state AS tags FROM alerts WHERE ts >= $__from / 1000 AND ts < $__to / 1000 AND kind != 'reminder' ORDER BY ts",
-          "queryText": "SELECT ts AS time, hub || ' ' || sensor || ': ' || state || COALESCE(' (' || NULLIF(reason, '') || ')', '') AS text, state AS tags FROM alerts WHERE ts >= $__from / 1000 AND ts < $__to / 1000 AND kind != 'reminder' ORDER BY ts",
+          "rawQueryText": "SELECT ts AS time, hub || ' ' || sensor || ': ' || state || COALESCE(' (' || NULLIF(reason, '') || ')', '') AS text, state AS tags FROM alerts WHERE ts >= $__from / 1000 AND ts < $__to / 1000 AND kind NOT IN ('reminder', 'brief') ORDER BY ts",
+          "queryText": "SELECT ts AS time, hub || ' ' || sensor || ': ' || state || COALESCE(' (' || NULLIF(reason, '') || ')', '') AS text, state AS tags FROM alerts WHERE ts >= $__from / 1000 AND ts < $__to / 1000 AND kind NOT IN ('reminder', 'brief') ORDER BY ts",
           "timeColumns": [
             "time",
             "ts"

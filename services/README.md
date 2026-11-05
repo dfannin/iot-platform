@@ -301,7 +301,7 @@ Flash esp32-monitor v1.8. The first telemetry arrives 5 minutes after it boots.
 | ESP32 | The shed ESP32's WiFi RSSI, free heap and uptime (drops show reboots). These are the ESP32's own values, not the server's: about 140 KiB free heap (of about 320 KB RAM) is normal. |
 | Recent alerts | Every alert from `mqtt2slack` in the time range |
 
-Alerts are also drawn as red markers on every graph (the **Alerts** annotation). Reminders are left out of the markers. The markers can be turned off at the top of the dashboard.
+Alerts are also drawn as red markers on every graph (the **Alerts** annotation). Reminders and brief outages (kind `brief`) are left out of the markers, but listed in **Recent alerts**. The markers can be turned off at the top of the dashboard.
 
 Two variables at the top:
 - **Resolution:** `5m` (5-minute points) or `1h` (hourly summaries). Use `1h` for ranges longer than about a month: it is faster, and 5-minute data is only kept for 2 years.
@@ -320,6 +320,7 @@ The dashboard is provisioned from the JSON file but can still be edited in Grafa
 | Internet or Slack down | Alert lost | Saved and sent later, marked "delivered late". After 24 h, combined into one summary. |
 | Slack errors | Not checked | `ok: false`, HTTP 429 (`Retry-After`) and connection errors are handled; errors are logged |
 | COLD | One alert | One alert, then a reminder every 6 hours while it lasts |
+| Reboot or short outage | OFFLINE and ONLINE posts every time | Nothing posted unless offline for 15 minutes (`[delays]`) |
 | History | — | `alerts` table in `telemetry.db`, shown in Grafana |
 | Code | In `flows.json`, edited in the browser | In git, with tests |
 
@@ -346,6 +347,7 @@ A reminder, and the watchdog:
 - **Change:** a topic's `state` differs from the last one seen, and the change is posted. Periodic updates with the same state are not.
 - **New topic:** the first time a topic is seen, it is only posted if its state is not one of `normal_states` (`OK`, `ONLINE`, `CLOSED`, `REPORTING`). So the first start posts only the topics that are in an alarm state, plus the door if it is `OPEN`.
 - **Watchdog:** `STALE` when a hub has sent nothing on `sensor/#` for 15 minutes (`stale_minutes`), and `REPORTING` when it sends again. esp32-monitor and esp32-door send a periodic update every 5 minutes. A hub whose last message is the broker's `OFFLINE` last will is not reported STALE, because OFFLINE was already posted.
+- **Delays:** `[delays] OFFLINE = 15` posts OFFLINE only if a node stays offline for 15 minutes; the message then says "(for 15 min)" and shows when it went offline. A reboot, reflash or short WiFi drop (OFFLINE, then ONLINE within 15 minutes) posts nothing in Slack, and is recorded in the alert history with kind `brief`. Other states can be delayed the same way, e.g. `HUMID = 30`. A delay that is still running when the service restarts starts over.
 - **Reminders:** `[reminders] COLD = 6` posts COLD again every 6 hours while it lasts. Other states can be added, e.g. `HIGH = 2`. A reminder says how long the state has lasted, and the age of the last report if it is older than 15 minutes.
 - **Order and rate:** alerts are sent in order, at most 1 per second.
 
