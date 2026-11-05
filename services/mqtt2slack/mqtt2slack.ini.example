@@ -35,6 +35,12 @@ check_interval_s = 60
 # STATE = hours: post again every N hours while a topic stays in that state (0 = off)
 COLD = 6
 
+[delays]
+# STATE = minutes: post a change to this state only if it lasts this long (0 = post at once).
+# OFFLINE = 15: a reboot, reflash or short WiFi drop causes no OFFLINE / ONLINE posts;
+# it is recorded in the alert history as kind "brief". After 15 minutes OFFLINE is posted.
+OFFLINE = 15
+
 [database]
 # Alert state and outbox (needed for restarts without duplicate posts)
 state_path = /var/lib/telemetry/mqtt2slack-state.db

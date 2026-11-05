@@ -279,6 +279,88 @@ class WatchdogTests(AlerterTestBase):
         self.assertEqual(self.flush(T0 + HOUR), [])
 
 
+def status(state, t=None, reason=""):
+    fields = dict(hub="shed00", sensor="Shed Monitor", state=state, reason=reason)
+    if t is None:
+        fields["timestamp"] = "unknown"          # the last will has no time
+    else:
+        fields["epoch"] = int(t)
+    return msg(**fields)
+
+
+class DelayTests(AlerterTestBase):
+    """[delays] OFFLINE = 15: OFFLINE is only posted if it lasts 15 minutes."""
+
+    def new_alerter(self):
+        return s.Alerter(s.StateStore(self.state_path), s.History(self.history_path),
+                         stale_minutes=10 ** 6, delays={"OFFLINE": 15}, min_interval_s=1)
+
+    def history(self):
+        db = sqlite3.connect(self.history_path)
+        rows = db.execute("SELECT state, previous, kind, reason FROM alerts ORDER BY rowid").fetchall()
+        db.close()
+        return rows
+
+    def go_online(self, t=T0):
+        self.feed("sensor/shed/status", status("ONLINE", t, "Connected"), t)
+        self.flush()
+
+    def test_brief_offline_not_posted(self):
+        self.go_online()
+        self.feed("sensor/shed/status", status("OFFLINE", reason="Connection lost"), T0 + 600)
+        self.alerter.tick(T0 + 600 + 10 * MIN)
+        self.assertEqual(self.flush(T0 + 600 + 10 * MIN), [])
+        self.feed("sensor/shed/status", status("ONLINE", T0 + 600 + 12 * MIN, "Connected"), T0 + 600 + 12 * MIN)
+        self.alerter.tick(T0 + HOUR)
+        self.assertEqual(self.flush(T0 + HOUR), [])          # neither OFFLINE nor ONLINE
+        self.assertEqual(self.history(), [("OFFLINE", "ONLINE", "brief", "Connection lost (12 min)")])
+        self.assertEqual(self.alerter.topics["sensor/shed/status"].state, "ONLINE")
+
+    def test_long_offline_posted_after_delay(self):
+        self.go_online()
+        self.feed("sensor/shed/status", status("OFFLINE", reason="Connection lost"), T0 + 600)
+        self.alerter.tick(T0 + 600 + 14 * MIN)
+        self.assertEqual(self.flush(T0 + 600 + 14 * MIN), [])
+        self.alerter.tick(T0 + 600 + 15 * MIN)
+        posts = self.flush(T0 + 600 + 15 * MIN)
+        self.assertEqual(len(posts), 1)
+        self.assertTrue(posts[0].startswith("🔴 *shed00 Shed Monitor: OFFLINE* (for 15 min) (was ONLINE)"), posts[0])
+        self.assertIn("Connection lost · " + s.local_time(T0 + 600), posts[0])   # when it went offline
+        self.alerter.tick(T0 + 2 * HOUR)
+        self.assertEqual(self.flush(T0 + 2 * HOUR), [])                          # posted once
+        self.feed("sensor/shed/status", status("ONLINE", T0 + 3 * HOUR, "Connected"), T0 + 3 * HOUR)
+        posts = self.flush()
+        self.assertEqual(len(posts), 1)
+        self.assertIn("🟢 *shed00 Shed Monitor: ONLINE* (was OFFLINE)", posts[0])
+
+    def test_other_states_not_delayed(self):
+        self.feed("sensor/shed/battery", battery("OK", T0), T0)
+        self.feed("sensor/shed/battery", battery("LOW", T0 + 60), T0 + 60)
+        self.assertEqual(len(self.flush()), 1)
+
+    def test_pending_restarts_after_service_restart(self):
+        self.go_online()
+        self.feed("sensor/shed/status", status("OFFLINE"), T0 + 600)
+        self.now = T0 + 900
+        self.restart()                                    # pending is in memory only
+        self.feed("sensor/shed/status", status("OFFLINE"), T0 + 900)   # retained replay
+        self.alerter.tick(T0 + 900 + 14 * MIN)
+        self.assertEqual(self.flush(T0 + 900 + 14 * MIN), [])
+        self.alerter.tick(T0 + 900 + 15 * MIN)
+        self.assertEqual(len(self.flush(T0 + 900 + 15 * MIN)), 1)
+
+    def test_offline_still_suppresses_stale(self):
+        a = s.Alerter(s.StateStore(os.path.join(self.tmp.name, "w.db")), None,
+                      stale_minutes=15, delays={"OFFLINE": 15})
+        a.handle_message("sensor/shed/status", status("ONLINE", T0), T0)
+        a.handle_message("sensor/shed/status", status("OFFLINE"), T0 + 60)
+        a.tick(T0 + HOUR)
+        texts = [row[2] for row in a.store.outbox()]
+        self.assertEqual(len(texts), 1)
+        self.assertIn("OFFLINE* (for", texts[0])           # the delayed OFFLINE, and no STALE
+        a.store.close()
+
+
 class OutboxTests(AlerterTestBase):
 
     def queue_alerts(self, n, t=T0):
@@ -343,9 +425,9 @@ class OutboxTests(AlerterTestBase):
         self.assertEqual(len(self.slack.posts), 1)
 
     def test_history_failure_does_not_block_slack(self):
-        bad = s.History(os.path.join(self.tmp.name, "missing-dir", "x.db"))
-        self.alerter.history = bad
         with self.assertLogs("mqtt2slack", level="WARNING"):
+            bad = s.History(os.path.join(self.tmp.name, "missing-dir", "x.db"))
+            self.alerter.history = bad
             self.queue_alerts(1)
         self.alerter.send_due(self.slack, T0)
         self.assertEqual(len(self.slack.posts), 1)
@@ -433,11 +515,13 @@ class ConfigTests(unittest.TestCase):
 
     def test_reminder_keys_keep_case_and_zero_disables(self):
         with tempfile.NamedTemporaryFile("w", suffix=".ini", delete=False) as f:
-            f.write("[reminders]\nCOLD = 0\nHOT = 2\n[database]\nstate_path = :memory:\nhistory_path =\n")
+            f.write("[reminders]\nCOLD = 0\nHOT = 2\n[delays]\nOFFLINE = 10\nSTALE = 0\n"
+                    "[database]\nstate_path = :memory:\nhistory_path =\n")
         try:
             cfg = s.load_config(f.name)
             a = s.make_alerter(cfg)
             self.assertEqual(a.reminders, {"HOT": 2.0})
+            self.assertEqual(a.delays, {"OFFLINE": 600.0})
             self.assertIsNone(a.history)
             a.store.close()
         finally:
