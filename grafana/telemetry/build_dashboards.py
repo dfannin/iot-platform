@@ -74,9 +74,11 @@ PARTITION_BY_HUB = [{"id": "partitionByValues",
 
 
 def series_defaults(unit, decimals=None, thr=None):
-    d = {"unit": unit, "color": {"mode": "palette-classic"},
+    # Colors by series name, so a node keeps its color in every panel; threshold
+    # lines dashed, so they don't look like data
+    d = {"unit": unit, "color": {"mode": "palette-classic-by-name"},
          "custom": {"lineWidth": 2, "fillOpacity": 0, "spanNulls": True, "showPoints": "never",
-                    "axisBorderShow": False, "thresholdsStyle": {"mode": "line" if thr else "off"}}}
+                    "axisBorderShow": False, "thresholdsStyle": {"mode": "dashed" if thr else "off"}}}
     if decimals is not None:
         d["decimals"] = decimals
     if thr:
@@ -89,8 +91,13 @@ def legend(**extra):
             "tooltip": {"mode": "multi", "sort": "none"}, **extra}
 
 
-def lines(title, sql, unit, decimals=None, desc="", thr=None, by_hub=False, step=False):
+def lines(title, sql, unit, decimals=None, desc="", thr=None, by_hub=False, step=False,
+          soft_min=None, soft_max=None):
     defaults = series_defaults(unit, decimals, thr)
+    if soft_min is not None:
+        defaults["custom"]["axisSoftMin"] = soft_min
+    if soft_max is not None:
+        defaults["custom"]["axisSoftMax"] = soft_max
     if step:
         defaults["custom"]["lineInterpolation"] = "stepAfter"
     panel = {"type": "timeseries", "title": title, "description": desc, "targets": [target(sql)],
@@ -101,10 +108,13 @@ def lines(title, sql, unit, decimals=None, desc="", thr=None, by_hub=False, step
     return panel
 
 
-def table(title, sql, desc="", time_cols=("time", "ts"), overrides=(), sort=None):
+def table(title, sql, desc="", time_cols=("time", "ts"), overrides=(), sort=None, min_width=None):
+    custom = {"align": "auto", "cellOptions": {"type": "auto"}}
+    if min_width:
+        custom["minWidth"] = min_width
     panel = {"type": "table", "title": title, "description": desc,
              "targets": [target(sql, time_cols)],
-             "fieldConfig": {"defaults": {"custom": {"align": "auto", "cellOptions": {"type": "auto"}}},
+             "fieldConfig": {"defaults": {"custom": custom},
                              "overrides": list(overrides)},
              "options": {"showHeader": True, "cellHeight": "sm", "footer": {"show": False}}}
     if sort:
@@ -193,13 +203,13 @@ seen AS (SELECT hub, MAX(ts) AS ts FROM (SELECT hub, ts FROM device_5m UNION ALL
          SELECT hub, ts FROM state_events WHERE state != 'OFFLINE') GROUP BY hub),
 boot AS (SELECT hub, firmware, reset_reason, MAX(ts) AS ts FROM boots GROUP BY hub)
 SELECT h.hub AS device, COALESCE(st.state, '?') AS status,
-       strftime('%s', 'now') - seen.ts AS last_seen,
+       strftime('%s', 'now') - seen.ts AS "last seen",
        boot.firmware AS firmware,
-       COALESCE({RESET_CASE.format(col='tel.reset_reason')}, boot.reset_reason) AS last_reset,
-       boot.ts AS last_boot,
+       COALESCE({RESET_CASE.format(col='tel.reset_reason')}, boot.reset_reason) AS "last reset",
+       boot.ts AS "last boot",
        tel.rssi AS rssi, tel.uptime_s AS uptime,
-       tel.free_heap AS free_heap, tel.min_free_heap AS lowest_heap,
-       tel.mqtt_connects - 1 AS mqtt_reconnects, tel.wifi_reconnects AS wifi_reconnects
+       tel.free_heap AS "free heap", tel.min_free_heap AS "lowest heap",
+       tel.mqtt_connects - 1 AS "MQTT reconnects", tel.wifi_reconnects AS "WiFi reconnects"
 FROM hubs h LEFT JOIN tel ON tel.hub = h.hub LEFT JOIN st ON st.hub = h.hub
 LEFT JOIN seen ON seen.hub = h.hub LEFT JOIN boot ON boot.hub = h.hub
 ORDER BY h.hub""".strip()
@@ -207,21 +217,21 @@ ORDER BY h.hub""".strip()
                 "Every node that sends device telemetry or an online/offline status. last_seen is the "
                 "age of its latest message. last_reset: why it last restarted (BROWNOUT = power supply, "
                 "PANIC / WATCHDOG = firmware crash or hang). Reconnect counts are since the last boot.",
-                time_cols=("time", "ts", "last_boot"),
+                time_cols=("time", "ts", "last boot"), min_width=70,
                 overrides=[colored_text("status", {"ONLINE": "green", "OFFLINE": "red"}),
-                           colored_text("last_reset", RESET_COLORS),
-                           unit_override("last_seen", "s", **{
+                           colored_text("last reset", RESET_COLORS),
+                           unit_override("last seen", "s", **{
                                "custom.cellOptions": {"type": "color-text"},
                                "thresholds": steps(("green", None), ("orange", 900), ("red", 1800)),
                                "color": {"mode": "thresholds"}}),
-                           unit_override("last_boot", "dateTimeAsLocal"),
+                           unit_override("last boot", "dateTimeAsIso", **{"custom.width": 160}),
                            unit_override("rssi", "dBm", **{
                                "custom.cellOptions": {"type": "color-text"},
                                "thresholds": steps(("red", None), ("orange", -80), ("green", -70)),
                                "color": {"mode": "thresholds"}}),
                            unit_override("uptime", "dtdurations"),
-                           unit_override("free_heap", "bytes"),
-                           unit_override("lowest_heap", "bytes")]),
+                           unit_override("free heap", "bytes"),
+                           unit_override("lowest heap", "bytes")]),
           0, 0, 24, 6)
 
     timeline_sql = f"""
@@ -235,14 +245,18 @@ ORDER BY time""".strip()
                    "From the retained status messages: ONLINE after each connect, OFFLINE from the "
                    "MQTT last will (about 90 s after a node stops responding)."), 0, 6, 16, 6)
 
+    # Counted from the start of the range, or from the node's first report if it is newer,
+    # allowing for the one report (5 minutes) that is not due yet
     received_sql = f"""
-SELECT hub, MIN(100.0, ROUND(100.0 * SUM(COALESCE(interval_s, 300)) / (($__to - $__from) / 1000.0), 1))
-       AS received
-FROM device_5m WHERE {RANGE} GROUP BY hub ORDER BY hub""".strip()
+WITH first AS (SELECT hub, MIN(ts - COALESCE(interval_s, 300)) AS first_ts FROM device_5m GROUP BY hub)
+SELECT d.hub, MIN(100.0, ROUND(100.0 * SUM(COALESCE(d.interval_s, 300))
+       / MAX(300.0, $__to / 1000.0 - MAX($__from / 1000.0, f.first_ts) - 300), 1)) AS received
+FROM device_5m d JOIN first f ON f.hub = d.hub
+WHERE d.{RANGE.replace(' AND ts', ' AND d.ts')} GROUP BY d.hub ORDER BY d.hub""".strip()
     d.add({"type": "bargauge", "title": "Telemetry received", "targets": [target(received_sql, ())],
-           "description": "Share of the time range covered by device telemetry (every 5 minutes). "
-                          "Below 100 % means missed reports: offline, WiFi or broker problems, or the "
-                          "node was added during the range.",
+           "description": "Share of the time range covered by device telemetry (every 5 minutes), "
+                          "counted from the node's first report if it is newer than the range. Below "
+                          "100 % means missed reports: offline, reboots, WiFi or broker problems.",
            "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "decimals": 1,
                                         "thresholds": steps(("red", None), ("orange", 95), ("green", 99)),
                                         "color": {"mode": "thresholds"}}, "overrides": []},
@@ -254,7 +268,8 @@ FROM device_5m WHERE {RANGE} GROUP BY hub ORDER BY hub""".strip()
     dev = f"FROM device_${{res}} WHERE {RANGE} ORDER BY ts"
     d.add(lines("WiFi RSSI", f"SELECT ts AS time, hub, rssi {dev}", "dBm", 0,
                 "Signal strength at each node. Below about -80 dBm connections start to drop.",
-                thr=steps(("red", None), ("orange", -80), ("green", -70)), by_hub=True), 0, 12, 12, 8)
+                thr=steps(("red", None), ("orange", -80), ("green", -70)), by_hub=True,
+                soft_min=-85, soft_max=-45), 0, 12, 12, 8)
     d.add(lines("Uptime", f"SELECT ts AS time, hub, uptime_s {dev}", "dtdurations", 0,
                 "Time since each node last booted. Drops to 0 are restarts (see Recent boots).",
                 by_hub=True), 12, 12, 12, 8)
@@ -273,7 +288,7 @@ FROM device_5m WHERE {RANGE} GROUP BY hub ORDER BY hub""".strip()
                 "Every restart (the first connect after a boot), with the firmware version and the reset "
                 "reason. SOFTWARE is normal after an OTA update or a WiFi recovery restart.",
                 overrides=[colored_text("reset_reason", RESET_COLORS),
-                           unit_override("time", "dateTimeAsLocal", **{"custom.width": 180})]),
+                           unit_override("time", "dateTimeAsIso", **{"custom.width": 170})]),
           0, 28, 24, 7)
 
     write("iot-device-health.json", "iot-device-health", "IoT Device Health", d.panels,
@@ -299,7 +314,7 @@ FROM state_events e WHERE {latest_event_sql(door_where)} ORDER BY door""".strip(
                 "long it has been in it.",
                 time_cols=("time", "ts", "since"),
                 overrides=[colored_text("state", {"OPEN": "orange", "CLOSED": "green"}),
-                           unit_override("since", "dateTimeAsLocal"),
+                           unit_override("since", "dateTimeAsIso"),
                            unit_override("for_s", "dtdurations", **{"displayName": "for"})]),
           0, 0, 24, 5)
 
@@ -343,7 +358,7 @@ FROM ev WHERE state = 'OPEN' AND {RANGE} GROUP BY day, door ORDER BY day""".stri
                   f"FROM state_events WHERE state IN ('OPEN', 'CLOSED') AND {RANGE} ORDER BY ts DESC LIMIT 500")
     d.add(table("Recent events", events_sql, "Every open and close in the time range (newest first).",
                 overrides=[colored_text("state", {"OPEN": "orange", "CLOSED": "green"}),
-                           unit_override("time", "dateTimeAsLocal", **{"custom.width": 180})]),
+                           unit_override("time", "dateTimeAsIso", **{"custom.width": 170})]),
           0, 21, 24, 8)
 
     write("doors.json", "iot-doors", "Door and Gate Status", d.panels, time_from="now-7d", refresh="1m",
@@ -450,7 +465,7 @@ def shed():
                 "watchdog, or brief (an outage too short to post).",
                 overrides=[colored_text("state", {"OK": "green", "ONLINE": "green", "REPORTING": "green"},
                                         default="orange"),
-                           unit_override("time", "dateTimeAsLocal", **{"custom.width": 180})]),
+                           unit_override("time", "dateTimeAsIso", **{"custom.width": 170})]),
           0, 37, 24, 9)
 
     annotation = {"name": "Alerts", "enable": True, "iconColor": "red", "datasource": DS,

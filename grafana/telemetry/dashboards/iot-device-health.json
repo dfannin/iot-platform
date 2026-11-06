@@ -70,12 +70,12 @@
           },
           "refId": "A",
           "queryType": "table",
-          "rawQueryText": "WITH hubs AS (SELECT hub FROM device_5m UNION SELECT hub FROM state_events WHERE topic LIKE '%/status'),\nlast AS (SELECT hub, MAX(ts) AS ts FROM device_5m GROUP BY hub),\ntel AS (SELECT x.* FROM device_5m x JOIN last ON x.hub = last.hub AND x.ts = last.ts),\nst AS (SELECT e.hub, e.state FROM state_events e WHERE e.id = (SELECT MAX(e2.id) FROM state_events e2 WHERE e2.topic = e.topic) AND e.topic LIKE '%/status'),\nseen AS (SELECT hub, MAX(ts) AS ts FROM (SELECT hub, ts FROM device_5m UNION ALL\n         SELECT hub, ts FROM state_events WHERE state != 'OFFLINE') GROUP BY hub),\nboot AS (SELECT hub, firmware, reset_reason, MAX(ts) AS ts FROM boots GROUP BY hub)\nSELECT h.hub AS device, COALESCE(st.state, '?') AS status,\n       strftime('%s', 'now') - seen.ts AS last_seen,\n       boot.firmware AS firmware,\n       COALESCE(CASE tel.reset_reason WHEN 0 THEN 'UNKNOWN' WHEN 1 THEN 'POWERON' WHEN 2 THEN 'EXTERNAL' WHEN 3 THEN 'SOFTWARE' WHEN 4 THEN 'PANIC' WHEN 5 THEN 'INT_WATCHDOG' WHEN 6 THEN 'TASK_WATCHDOG' WHEN 7 THEN 'WATCHDOG' WHEN 8 THEN 'DEEPSLEEP' WHEN 9 THEN 'BROWNOUT' WHEN 10 THEN 'SDIO' END, boot.reset_reason) AS last_reset,\n       boot.ts AS last_boot,\n       tel.rssi AS rssi, tel.uptime_s AS uptime,\n       tel.free_heap AS free_heap, tel.min_free_heap AS lowest_heap,\n       tel.mqtt_connects - 1 AS mqtt_reconnects, tel.wifi_reconnects AS wifi_reconnects\nFROM hubs h LEFT JOIN tel ON tel.hub = h.hub LEFT JOIN st ON st.hub = h.hub\nLEFT JOIN seen ON seen.hub = h.hub LEFT JOIN boot ON boot.hub = h.hub\nORDER BY h.hub",
-          "queryText": "WITH hubs AS (SELECT hub FROM device_5m UNION SELECT hub FROM state_events WHERE topic LIKE '%/status'),\nlast AS (SELECT hub, MAX(ts) AS ts FROM device_5m GROUP BY hub),\ntel AS (SELECT x.* FROM device_5m x JOIN last ON x.hub = last.hub AND x.ts = last.ts),\nst AS (SELECT e.hub, e.state FROM state_events e WHERE e.id = (SELECT MAX(e2.id) FROM state_events e2 WHERE e2.topic = e.topic) AND e.topic LIKE '%/status'),\nseen AS (SELECT hub, MAX(ts) AS ts FROM (SELECT hub, ts FROM device_5m UNION ALL\n         SELECT hub, ts FROM state_events WHERE state != 'OFFLINE') GROUP BY hub),\nboot AS (SELECT hub, firmware, reset_reason, MAX(ts) AS ts FROM boots GROUP BY hub)\nSELECT h.hub AS device, COALESCE(st.state, '?') AS status,\n       strftime('%s', 'now') - seen.ts AS last_seen,\n       boot.firmware AS firmware,\n       COALESCE(CASE tel.reset_reason WHEN 0 THEN 'UNKNOWN' WHEN 1 THEN 'POWERON' WHEN 2 THEN 'EXTERNAL' WHEN 3 THEN 'SOFTWARE' WHEN 4 THEN 'PANIC' WHEN 5 THEN 'INT_WATCHDOG' WHEN 6 THEN 'TASK_WATCHDOG' WHEN 7 THEN 'WATCHDOG' WHEN 8 THEN 'DEEPSLEEP' WHEN 9 THEN 'BROWNOUT' WHEN 10 THEN 'SDIO' END, boot.reset_reason) AS last_reset,\n       boot.ts AS last_boot,\n       tel.rssi AS rssi, tel.uptime_s AS uptime,\n       tel.free_heap AS free_heap, tel.min_free_heap AS lowest_heap,\n       tel.mqtt_connects - 1 AS mqtt_reconnects, tel.wifi_reconnects AS wifi_reconnects\nFROM hubs h LEFT JOIN tel ON tel.hub = h.hub LEFT JOIN st ON st.hub = h.hub\nLEFT JOIN seen ON seen.hub = h.hub LEFT JOIN boot ON boot.hub = h.hub\nORDER BY h.hub",
+          "rawQueryText": "WITH hubs AS (SELECT hub FROM device_5m UNION SELECT hub FROM state_events WHERE topic LIKE '%/status'),\nlast AS (SELECT hub, MAX(ts) AS ts FROM device_5m GROUP BY hub),\ntel AS (SELECT x.* FROM device_5m x JOIN last ON x.hub = last.hub AND x.ts = last.ts),\nst AS (SELECT e.hub, e.state FROM state_events e WHERE e.id = (SELECT MAX(e2.id) FROM state_events e2 WHERE e2.topic = e.topic) AND e.topic LIKE '%/status'),\nseen AS (SELECT hub, MAX(ts) AS ts FROM (SELECT hub, ts FROM device_5m UNION ALL\n         SELECT hub, ts FROM state_events WHERE state != 'OFFLINE') GROUP BY hub),\nboot AS (SELECT hub, firmware, reset_reason, MAX(ts) AS ts FROM boots GROUP BY hub)\nSELECT h.hub AS device, COALESCE(st.state, '?') AS status,\n       strftime('%s', 'now') - seen.ts AS \"last seen\",\n       boot.firmware AS firmware,\n       COALESCE(CASE tel.reset_reason WHEN 0 THEN 'UNKNOWN' WHEN 1 THEN 'POWERON' WHEN 2 THEN 'EXTERNAL' WHEN 3 THEN 'SOFTWARE' WHEN 4 THEN 'PANIC' WHEN 5 THEN 'INT_WATCHDOG' WHEN 6 THEN 'TASK_WATCHDOG' WHEN 7 THEN 'WATCHDOG' WHEN 8 THEN 'DEEPSLEEP' WHEN 9 THEN 'BROWNOUT' WHEN 10 THEN 'SDIO' END, boot.reset_reason) AS \"last reset\",\n       boot.ts AS \"last boot\",\n       tel.rssi AS rssi, tel.uptime_s AS uptime,\n       tel.free_heap AS \"free heap\", tel.min_free_heap AS \"lowest heap\",\n       tel.mqtt_connects - 1 AS \"MQTT reconnects\", tel.wifi_reconnects AS \"WiFi reconnects\"\nFROM hubs h LEFT JOIN tel ON tel.hub = h.hub LEFT JOIN st ON st.hub = h.hub\nLEFT JOIN seen ON seen.hub = h.hub LEFT JOIN boot ON boot.hub = h.hub\nORDER BY h.hub",
+          "queryText": "WITH hubs AS (SELECT hub FROM device_5m UNION SELECT hub FROM state_events WHERE topic LIKE '%/status'),\nlast AS (SELECT hub, MAX(ts) AS ts FROM device_5m GROUP BY hub),\ntel AS (SELECT x.* FROM device_5m x JOIN last ON x.hub = last.hub AND x.ts = last.ts),\nst AS (SELECT e.hub, e.state FROM state_events e WHERE e.id = (SELECT MAX(e2.id) FROM state_events e2 WHERE e2.topic = e.topic) AND e.topic LIKE '%/status'),\nseen AS (SELECT hub, MAX(ts) AS ts FROM (SELECT hub, ts FROM device_5m UNION ALL\n         SELECT hub, ts FROM state_events WHERE state != 'OFFLINE') GROUP BY hub),\nboot AS (SELECT hub, firmware, reset_reason, MAX(ts) AS ts FROM boots GROUP BY hub)\nSELECT h.hub AS device, COALESCE(st.state, '?') AS status,\n       strftime('%s', 'now') - seen.ts AS \"last seen\",\n       boot.firmware AS firmware,\n       COALESCE(CASE tel.reset_reason WHEN 0 THEN 'UNKNOWN' WHEN 1 THEN 'POWERON' WHEN 2 THEN 'EXTERNAL' WHEN 3 THEN 'SOFTWARE' WHEN 4 THEN 'PANIC' WHEN 5 THEN 'INT_WATCHDOG' WHEN 6 THEN 'TASK_WATCHDOG' WHEN 7 THEN 'WATCHDOG' WHEN 8 THEN 'DEEPSLEEP' WHEN 9 THEN 'BROWNOUT' WHEN 10 THEN 'SDIO' END, boot.reset_reason) AS \"last reset\",\n       boot.ts AS \"last boot\",\n       tel.rssi AS rssi, tel.uptime_s AS uptime,\n       tel.free_heap AS \"free heap\", tel.min_free_heap AS \"lowest heap\",\n       tel.mqtt_connects - 1 AS \"MQTT reconnects\", tel.wifi_reconnects AS \"WiFi reconnects\"\nFROM hubs h LEFT JOIN tel ON tel.hub = h.hub LEFT JOIN st ON st.hub = h.hub\nLEFT JOIN seen ON seen.hub = h.hub LEFT JOIN boot ON boot.hub = h.hub\nORDER BY h.hub",
           "timeColumns": [
             "time",
             "ts",
-            "last_boot"
+            "last boot"
           ]
         }
       ],
@@ -85,7 +85,8 @@
             "align": "auto",
             "cellOptions": {
               "type": "auto"
-            }
+            },
+            "minWidth": 70
           }
         },
         "overrides": [
@@ -131,7 +132,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "last_reset"
+              "options": "last reset"
             },
             "properties": [
               {
@@ -202,7 +203,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "last_seen"
+              "options": "last seen"
             },
             "properties": [
               {
@@ -246,12 +247,16 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "last_boot"
+              "options": "last boot"
             },
             "properties": [
               {
                 "id": "unit",
-                "value": "dateTimeAsLocal"
+                "value": "dateTimeAsIso"
+              },
+              {
+                "id": "custom.width",
+                "value": 160
               }
             ]
           },
@@ -314,7 +319,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "free_heap"
+              "options": "free heap"
             },
             "properties": [
               {
@@ -326,7 +331,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "lowest_heap"
+              "options": "lowest heap"
             },
             "properties": [
               {
@@ -465,12 +470,12 @@
           },
           "refId": "A",
           "queryType": "table",
-          "rawQueryText": "SELECT hub, MIN(100.0, ROUND(100.0 * SUM(COALESCE(interval_s, 300)) / (($__to - $__from) / 1000.0), 1))\n       AS received\nFROM device_5m WHERE ts >= $__from / 1000 AND ts < $__to / 1000 GROUP BY hub ORDER BY hub",
-          "queryText": "SELECT hub, MIN(100.0, ROUND(100.0 * SUM(COALESCE(interval_s, 300)) / (($__to - $__from) / 1000.0), 1))\n       AS received\nFROM device_5m WHERE ts >= $__from / 1000 AND ts < $__to / 1000 GROUP BY hub ORDER BY hub",
+          "rawQueryText": "WITH first AS (SELECT hub, MIN(ts - COALESCE(interval_s, 300)) AS first_ts FROM device_5m GROUP BY hub)\nSELECT d.hub, MIN(100.0, ROUND(100.0 * SUM(COALESCE(d.interval_s, 300))\n       / MAX(300.0, $__to / 1000.0 - MAX($__from / 1000.0, f.first_ts) - 300), 1)) AS received\nFROM device_5m d JOIN first f ON f.hub = d.hub\nWHERE d.ts >= $__from / 1000 AND d.ts < $__to / 1000 GROUP BY d.hub ORDER BY d.hub",
+          "queryText": "WITH first AS (SELECT hub, MIN(ts - COALESCE(interval_s, 300)) AS first_ts FROM device_5m GROUP BY hub)\nSELECT d.hub, MIN(100.0, ROUND(100.0 * SUM(COALESCE(d.interval_s, 300))\n       / MAX(300.0, $__to / 1000.0 - MAX($__from / 1000.0, f.first_ts) - 300), 1)) AS received\nFROM device_5m d JOIN first f ON f.hub = d.hub\nWHERE d.ts >= $__from / 1000 AND d.ts < $__to / 1000 GROUP BY d.hub ORDER BY d.hub",
           "timeColumns": []
         }
       ],
-      "description": "Share of the time range covered by device telemetry (every 5 minutes). Below 100 % means missed reports: offline, WiFi or broker problems, or the node was added during the range.",
+      "description": "Share of the time range covered by device telemetry (every 5 minutes), counted from the node's first report if it is newer than the range. Below 100 % means missed reports: offline, reboots, WiFi or broker problems.",
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
@@ -548,7 +553,7 @@
         "defaults": {
           "unit": "dBm",
           "color": {
-            "mode": "palette-classic"
+            "mode": "palette-classic-by-name"
           },
           "custom": {
             "lineWidth": 2,
@@ -557,8 +562,10 @@
             "showPoints": "never",
             "axisBorderShow": false,
             "thresholdsStyle": {
-              "mode": "line"
-            }
+              "mode": "dashed"
+            },
+            "axisSoftMin": -85,
+            "axisSoftMax": -45
           },
           "decimals": 0,
           "thresholds": {
@@ -643,7 +650,7 @@
         "defaults": {
           "unit": "dtdurations",
           "color": {
-            "mode": "palette-classic"
+            "mode": "palette-classic-by-name"
           },
           "custom": {
             "lineWidth": 2,
@@ -721,7 +728,7 @@
         "defaults": {
           "unit": "bytes",
           "color": {
-            "mode": "palette-classic"
+            "mode": "palette-classic-by-name"
           },
           "custom": {
             "lineWidth": 2,
@@ -799,7 +806,7 @@
         "defaults": {
           "unit": "short",
           "color": {
-            "mode": "palette-classic"
+            "mode": "palette-classic-by-name"
           },
           "custom": {
             "lineWidth": 2,
@@ -963,11 +970,11 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "dateTimeAsLocal"
+                "value": "dateTimeAsIso"
               },
               {
                 "id": "custom.width",
-                "value": 180
+                "value": 170
               }
             ]
           }
