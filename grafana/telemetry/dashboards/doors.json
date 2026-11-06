@@ -111,7 +111,7 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "dateTimeAsLocal"
+                "value": "dateTimeAsIso"
               }
             ]
           },
@@ -473,11 +473,11 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "dateTimeAsLocal"
+                "value": "dateTimeAsIso"
               },
               {
                 "id": "custom.width",
-                "value": 180
+                "value": 170
               }
             ]
           }

@@ -451,7 +451,7 @@
         "defaults": {
           "unit": "volt",
           "color": {
-            "mode": "palette-classic"
+            "mode": "palette-classic-by-name"
           },
           "custom": {
             "lineWidth": 2,
@@ -460,7 +460,7 @@
             "showPoints": "never",
             "axisBorderShow": false,
             "thresholdsStyle": {
-              "mode": "line"
+              "mode": "dashed"
             }
           },
           "decimals": 2,
@@ -593,7 +593,7 @@
         "defaults": {
           "unit": "amp",
           "color": {
-            "mode": "palette-classic"
+            "mode": "palette-classic-by-name"
           },
           "custom": {
             "lineWidth": 2,
@@ -718,7 +718,7 @@
         "defaults": {
           "unit": "amp",
           "color": {
-            "mode": "palette-classic"
+            "mode": "palette-classic-by-name"
           },
           "custom": {
             "lineWidth": 2,
@@ -843,7 +843,7 @@
         "defaults": {
           "unit": "watt",
           "color": {
-            "mode": "palette-classic"
+            "mode": "palette-classic-by-name"
           },
           "custom": {
             "lineWidth": 2,
@@ -852,7 +852,7 @@
             "showPoints": "never",
             "axisBorderShow": false,
             "thresholdsStyle": {
-              "mode": "line"
+              "mode": "dashed"
             }
           },
           "decimals": 1,
@@ -919,7 +919,7 @@
         "defaults": {
           "unit": "celsius",
           "color": {
-            "mode": "palette-classic"
+            "mode": "palette-classic-by-name"
           },
           "custom": {
             "lineWidth": 2,
@@ -928,7 +928,7 @@
             "showPoints": "never",
             "axisBorderShow": false,
             "thresholdsStyle": {
-              "mode": "line"
+              "mode": "dashed"
             }
           },
           "decimals": 1,
@@ -1061,7 +1061,7 @@
         "defaults": {
           "unit": "humidity",
           "color": {
-            "mode": "palette-classic"
+            "mode": "palette-classic-by-name"
           },
           "custom": {
             "lineWidth": 2,
@@ -1070,7 +1070,7 @@
             "showPoints": "never",
             "axisBorderShow": false,
             "thresholdsStyle": {
-              "mode": "line"
+              "mode": "dashed"
             }
           },
           "decimals": 0,
@@ -1318,11 +1318,11 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "dateTimeAsLocal"
+                "value": "dateTimeAsIso"
               },
               {
                 "id": "custom.width",
-                "value": 180
+                "value": 170
               }
             ]
           }
