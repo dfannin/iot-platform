@@ -42,7 +42,7 @@ Each message's `type` field picks the table, and each numeric field becomes a co
 |-------|----------|------|
 | `power_5m` | `solar` and `battery`: `bus_voltage`, `current`, `power`, each with `_min` / `_max` | 2 years (`raw_retention_days`) |
 | `env_5m` | `env`: `temperature_c`, `humidity`, each with `_min` / `_max` | 2 years |
-| `device_5m` | `device`: `rssi`, `uptime_s`, `free_heap`, `min_free_heap`, `mqtt_connects` | 2 years |
+| `device_5m` | `device` (every node): `rssi`, `uptime_s`, `free_heap`, `min_free_heap`, `mqtt_connects`, `wifi_reconnects`, `reset_reason` | 2 years |
 | `power_1h`, `env_1h`, `device_1h` | Hourly summaries: weighted averages, the lowest `_min` and highest `_max` | Forever |
 
 Every table has `ts` (Unix seconds, UTC), `hub` and `sensor`, plus `interval_s` and `samples`. The primary key is `(hub, sensor, ts)`, so a repeated message is ignored. Each 5-minute row also has `received`, the time the message arrived.
@@ -61,6 +61,17 @@ Notes:
 - The solar `power` uses the battery voltage, because the Keeper 1220 is common-positive (see the main README), so solar energy reads about 35 % low. The battery values are accurate.
 - **The database follows the firmware.** A new numeric field from the firmware becomes a new column automatically, and a new `type` becomes a new table.
 
+### State History (from `sensor/#`)
+
+`mqtt2sqlite` also reads the retained alert-state messages on `sensor/#` (`state_topic`) and keeps two small tables, forever:
+
+| Table | One row per | Columns |
+|-------|-------------|---------|
+| `state_events` | Change of a topic's `state`: door `OPEN`/`CLOSED`, node `ONLINE`/`OFFLINE`, `LOW`, `COLD`, ... | `ts`, `hub`, `sensor`, `topic`, `state`, `previous`, `reason` |
+| `boots` | Restart of a node (an `ONLINE` message with reason `Started`, from esp32-monitor v1.9.2 / esp32-door v4.1 on) | `ts`, `hub`, `firmware`, `reset_reason` |
+
+Only changes are stored: the last state of each topic is kept in `last_state`, so periodic updates, restarts of the service and retained replays add nothing. `alerts` (written by `mqtt2slack`) is different: it follows the alerting rules (delays, reminders), while `state_events` is the plain history.
+
 ## Files
 
 | File | Install to |
@@ -71,7 +82,8 @@ Notes:
 | `systemd/mqtt2sqlite.service` | `/etc/systemd/system/mqtt2sqlite.service` |
 | `grafana/provisioning/datasources/telemetry.yaml` | `/etc/grafana/provisioning/datasources/` |
 | `grafana/provisioning/dashboards/telemetry.yaml` | `/etc/grafana/provisioning/dashboards/` |
-| `grafana/dashboards/shed-monitor.json` | `/etc/grafana/dashboards/telemetry/` |
+| `grafana/dashboards/*.json` (3 dashboards) | `/etc/grafana/dashboards/telemetry/` |
+| `grafana/build_dashboards.py` | Not installed. Builds the dashboard JSON files: edit it, then run `python3 server/grafana/build_dashboards.py`. |
 | `grafana/systemd/telemetry.conf` | `/etc/systemd/system/grafana-server.service.d/` |
 | `mqtt2slack.py` | `/opt/mqtt2slack/mqtt2slack.py` |
 | `mqtt2slack.ini.example` | `/etc/mqtt2slack/mqtt2slack.ini` |
@@ -259,7 +271,7 @@ sudo install -m 644 server/grafana/provisioning/dashboards/telemetry.yaml /etc/g
 ```
 
 ```bash
-sudo install -D -m 644 server/grafana/dashboards/shed-monitor.json /etc/grafana/dashboards/telemetry/shed-monitor.json
+sudo install -d /etc/grafana/dashboards/telemetry && sudo install -m 644 server/grafana/dashboards/*.json /etc/grafana/dashboards/telemetry/
 ```
 
 Start Grafana:
@@ -272,7 +284,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now grafana-server
 ```
 
-Open `http://rizz:3000/` (or the server's IP address) and log in as `admin` / `admin`. Grafana asks for a new password. The dashboard is under **Dashboards → Shed → Shed Monitor**.
+Open `http://rizz:3000/` (or the server's IP address) and log in as `admin` / `admin`. Grafana asks for a new password. The dashboards are in the **IoT** folder: **Dashboards → IoT**.
 
 **Optional: reduce Grafana's background work.** In `/etc/grafana/grafana.ini`, set the following, then restart Grafana:
 
@@ -288,26 +300,54 @@ news_feed_enabled = false
 
 ### 9. Firmware
 
-Flash esp32-monitor v1.8. The first telemetry arrives 5 minutes after it boots.
+Flash esp32-monitor (v1.9.2 or later for the reset reason and WiFi reconnects). The first telemetry arrives 5 minutes after it boots.
 
-## The Dashboard
+## The Dashboards
+
+All three are in the **IoT** folder, tagged `iot`, and linked to each other through the **IoT dashboards** menu at the top.
+
+### IoT Device Health
+
+Every node, side by side. A new node appears by itself once it sends device telemetry (`telemetry/<location>/device`) or an online/offline status (`sensor/<location>/status`).
+
+| Panel | Shows |
+|-------|-------|
+| Devices | Per node: status (ONLINE/OFFLINE), last seen, firmware, last reset reason, last boot, RSSI, uptime, free and lowest heap, MQTT and WiFi reconnects since boot |
+| Online / offline | Timeline per node, from the status messages |
+| Telemetry received | Share of the time range covered by telemetry; below 100 % means missed reports |
+| WiFi RSSI, Uptime, Free memory, Reconnects since boot | One line per node |
+| Recent boots | Every restart with firmware and reset reason |
+
+Reset reasons: `POWERON` (power applied), `SOFTWARE` (OTA update or WiFi recovery restart), `EXTERNAL` (reset button), `BROWNOUT` (supply voltage dropped: check the power), `PANIC`, `INT_WATCHDOG`, `TASK_WATCHDOG`, `WATCHDOG` (firmware crash or hang).
+
+### Door and Gate Status
+
+Every door or gate sensor, from any node, found by its `OPEN` / `CLOSED` states, so a new door node appears by itself.
+
+| Panel | Shows |
+|-------|-------|
+| Doors and gates now | Current state and how long it has been in it |
+| Open / closed | Timeline, one row per door (orange = open) |
+| Opens per day, Time open per day | Last 30 days, one bar per door. An opening is counted on the day it started. |
+| Recent events | Every open and close in the time range |
+
+### Shed Solar Monitor
 
 | Section | Panels |
 |---------|--------|
-| Top row | Latest battery voltage and current, solar current, temperature, humidity and the ESP32's WiFi RSSI, colored by the alarm thresholds |
-| Power | Battery voltage, battery current and solar current (average line with a min–max band), and power |
+| Top row | Latest battery voltage and current, solar current, temperature and humidity, colored by the alarm thresholds |
+| Power | Battery voltage, battery current and solar current (average line with a min–max band), and power (with a dashed 0 line: above = generating or charging, below = consuming) |
 | Environment | Temperature and humidity, with lines at the alarm thresholds |
 | Daily energy | Battery charged and discharged and solar Wh per day, for the last 30 days |
-| ESP32 | The shed ESP32's WiFi RSSI, free heap and uptime (drops show reboots). These are the ESP32's own values, not the server's: about 140 KiB free heap (of about 320 KB RAM) is normal. |
-| Recent alerts | Every alert from `mqtt2slack` in the time range |
+| Recent alerts | Every alert for this hub from `mqtt2slack` |
 
-Alerts are also drawn as red markers on every graph (the **Alerts** annotation). Reminders and brief outages (kind `brief`) are left out of the markers, but listed in **Recent alerts**. The markers can be turned off at the top of the dashboard.
+The ESP32 itself (RSSI, memory, uptime) is on **IoT Device Health**. Alerts for the hub are drawn as red markers on the graphs (the **Alerts** annotation); reminders and brief outages are left out of the markers but listed in **Recent alerts**.
 
-Two variables at the top:
-- **Resolution:** `5m` (5-minute points) or `1h` (hourly summaries). Use `1h` for ranges longer than about a month: it is faster, and 5-minute data is only kept for 2 years.
-- **Hub:** `shed00`.
+Variables at the top: **Resolution** (`5m` or `1h`; use `1h` for ranges longer than about a month, as 5-minute data is kept for 2 years) and **Hub** (`shed00`). **IoT Device Health** has **Resolution** too.
 
-The dashboard is provisioned from the JSON file but can still be edited in Grafana. To keep your changes, export the JSON (**Share → Export**) and save it over `grafana/dashboards/shed-monitor.json`.
+### Changing the Dashboards
+
+The dashboards are built by `grafana/build_dashboards.py`. To change one, edit the script, run `python3 server/grafana/build_dashboards.py`, commit, and install the JSON files again. Changes saved in Grafana work, but are replaced the next time the JSON files are installed.
 
 ## Alert Service (mqtt2slack)
 
@@ -512,6 +552,8 @@ sudo systemctl start mqtt2sqlite
 ```
 
 ### Upgrade the Ingester
+
+New database tables are created by themselves when the new version starts; existing data is kept. Since the state history version, `mqtt2sqlite` also subscribes to `sensor/#`: the default `state_topic = sensor/#` applies without a config change, but if your Mosquitto `acl_file` restricts the `telemetry` user, it needs `topic read sensor/#` (see step 2).
 
 ```bash
 sudo install -m 644 server/mqtt2sqlite.py /opt/mqtt2sqlite/ && sudo systemctl restart mqtt2sqlite

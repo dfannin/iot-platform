@@ -1,0 +1,996 @@
+{
+  "uid": "iot-device-health",
+  "title": "IoT Device Health",
+  "description": "Health of every IoT node: online status, WiFi, uptime, memory and restarts.",
+  "tags": [
+    "iot"
+  ],
+  "timezone": "browser",
+  "editable": true,
+  "refresh": "5m",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "iot"
+      ],
+      "asDropdown": true,
+      "title": "IoT dashboards",
+      "includeVars": false,
+      "keepTime": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "type": "custom",
+        "name": "res",
+        "label": "Resolution",
+        "query": "5m,1h",
+        "description": "5m: 5-minute points (kept 2 years). 1h: hourly summaries (kept forever), faster for long ranges.",
+        "current": {
+          "text": "5m",
+          "value": "5m"
+        },
+        "options": [
+          {
+            "text": "5m",
+            "value": "5m",
+            "selected": true
+          },
+          {
+            "text": "1h",
+            "value": "1h",
+            "selected": false
+          }
+        ],
+        "hide": 0
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "table",
+      "title": "Devices",
+      "description": "Every node that sends device telemetry or an online/offline status. last_seen is the age of its latest message. last_reset: why it last restarted (BROWNOUT = power supply, PANIC / WATCHDOG = firmware crash or hang). Reconnect counts are since the last boot.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "telemetry-sqlite"
+          },
+          "refId": "A",
+          "queryType": "table",
+          "rawQueryText": "WITH hubs AS (SELECT hub FROM device_5m UNION SELECT hub FROM state_events WHERE topic LIKE '%/status'),\nlast AS (SELECT hub, MAX(ts) AS ts FROM device_5m GROUP BY hub),\ntel AS (SELECT x.* FROM device_5m x JOIN last ON x.hub = last.hub AND x.ts = last.ts),\nst AS (SELECT e.hub, e.state FROM state_events e WHERE e.id = (SELECT MAX(e2.id) FROM state_events e2 WHERE e2.topic = e.topic) AND e.topic LIKE '%/status'),\nseen AS (SELECT hub, MAX(ts) AS ts FROM (SELECT hub, ts FROM device_5m UNION ALL\n         SELECT hub, ts FROM state_events WHERE state != 'OFFLINE') GROUP BY hub),\nboot AS (SELECT hub, firmware, reset_reason, MAX(ts) AS ts FROM boots GROUP BY hub)\nSELECT h.hub AS device, COALESCE(st.state, '?') AS status,\n       strftime('%s', 'now') - seen.ts AS last_seen,\n       boot.firmware AS firmware,\n       COALESCE(CASE tel.reset_reason WHEN 0 THEN 'UNKNOWN' WHEN 1 THEN 'POWERON' WHEN 2 THEN 'EXTERNAL' WHEN 3 THEN 'SOFTWARE' WHEN 4 THEN 'PANIC' WHEN 5 THEN 'INT_WATCHDOG' WHEN 6 THEN 'TASK_WATCHDOG' WHEN 7 THEN 'WATCHDOG' WHEN 8 THEN 'DEEPSLEEP' WHEN 9 THEN 'BROWNOUT' WHEN 10 THEN 'SDIO' END, boot.reset_reason) AS last_reset,\n       boot.ts AS last_boot,\n       tel.rssi AS rssi, tel.uptime_s AS uptime,\n       tel.free_heap AS free_heap, tel.min_free_heap AS lowest_heap,\n       tel.mqtt_connects - 1 AS mqtt_reconnects, tel.wifi_reconnects AS wifi_reconnects\nFROM hubs h LEFT JOIN tel ON tel.hub = h.hub LEFT JOIN st ON st.hub = h.hub\nLEFT JOIN seen ON seen.hub = h.hub LEFT JOIN boot ON boot.hub = h.hub\nORDER BY h.hub",
+          "queryText": "WITH hubs AS (SELECT hub FROM device_5m UNION SELECT hub FROM state_events WHERE topic LIKE '%/status'),\nlast AS (SELECT hub, MAX(ts) AS ts FROM device_5m GROUP BY hub),\ntel AS (SELECT x.* FROM device_5m x JOIN last ON x.hub = last.hub AND x.ts = last.ts),\nst AS (SELECT e.hub, e.state FROM state_events e WHERE e.id = (SELECT MAX(e2.id) FROM state_events e2 WHERE e2.topic = e.topic) AND e.topic LIKE '%/status'),\nseen AS (SELECT hub, MAX(ts) AS ts FROM (SELECT hub, ts FROM device_5m UNION ALL\n         SELECT hub, ts FROM state_events WHERE state != 'OFFLINE') GROUP BY hub),\nboot AS (SELECT hub, firmware, reset_reason, MAX(ts) AS ts FROM boots GROUP BY hub)\nSELECT h.hub AS device, COALESCE(st.state, '?') AS status,\n       strftime('%s', 'now') - seen.ts AS last_seen,\n       boot.firmware AS firmware,\n       COALESCE(CASE tel.reset_reason WHEN 0 THEN 'UNKNOWN' WHEN 1 THEN 'POWERON' WHEN 2 THEN 'EXTERNAL' WHEN 3 THEN 'SOFTWARE' WHEN 4 THEN 'PANIC' WHEN 5 THEN 'INT_WATCHDOG' WHEN 6 THEN 'TASK_WATCHDOG' WHEN 7 THEN 'WATCHDOG' WHEN 8 THEN 'DEEPSLEEP' WHEN 9 THEN 'BROWNOUT' WHEN 10 THEN 'SDIO' END, boot.reset_reason) AS last_reset,\n       boot.ts AS last_boot,\n       tel.rssi AS rssi, tel.uptime_s AS uptime,\n       tel.free_heap AS free_heap, tel.min_free_heap AS lowest_heap,\n       tel.mqtt_connects - 1 AS mqtt_reconnects, tel.wifi_reconnects AS wifi_reconnects\nFROM hubs h LEFT JOIN tel ON tel.hub = h.hub LEFT JOIN st ON st.hub = h.hub\nLEFT JOIN seen ON seen.hub = h.hub LEFT JOIN boot ON boot.hub = h.hub\nORDER BY h.hub",
+          "timeColumns": [
+            "time",
+            "ts",
+            "last_boot"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "ONLINE": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "OFFLINE": {
+                        "color": "red",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_reset"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "POWERON": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "SOFTWARE": {
+                        "color": "green",
+                        "index": 1
+                      },
+                      "EXTERNAL": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "DEEPSLEEP": {
+                        "color": "blue",
+                        "index": 3
+                      },
+                      "BROWNOUT": {
+                        "color": "red",
+                        "index": 4
+                      },
+                      "PANIC": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "INT_WATCHDOG": {
+                        "color": "red",
+                        "index": 6
+                      },
+                      "TASK_WATCHDOG": {
+                        "color": "red",
+                        "index": 7
+                      },
+                      "WATCHDOG": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "UNKNOWN": {
+                        "color": "text",
+                        "index": 9
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_seen"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 900
+                    },
+                    {
+                      "color": "red",
+                      "value": 1800
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_boot"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "rssi"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dBm"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": -80
+                    },
+                    {
+                      "color": "green",
+                      "value": -70
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "uptime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dtdurations"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "free_heap"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "lowest_heap"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 1,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "telemetry-sqlite"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 6
+      }
+    },
+    {
+      "type": "state-timeline",
+      "title": "Online / offline",
+      "description": "From the retained status messages: ONLINE after each connect, OFFLINE from the MQTT last will (about 90 s after a node stops responding).",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "telemetry-sqlite"
+          },
+          "refId": "A",
+          "queryType": "table",
+          "rawQueryText": "SELECT ts AS time, hub, state FROM state_events\nWHERE topic LIKE '%/status' AND ts >= $__from / 1000 AND ts < $__to / 1000\nUNION ALL\nSELECT $__from / 1000 AS time, e.hub, e.state FROM state_events e\nWHERE e.id = (SELECT MAX(e2.id) FROM state_events e2 WHERE e2.topic = e.topic AND e2.ts < $__from / 1000) AND e.topic LIKE '%/status'\nORDER BY time",
+          "queryText": "SELECT ts AS time, hub, state FROM state_events\nWHERE topic LIKE '%/status' AND ts >= $__from / 1000 AND ts < $__to / 1000\nUNION ALL\nSELECT $__from / 1000 AS time, e.hub, e.state FROM state_events e\nWHERE e.id = (SELECT MAX(e2.id) FROM state_events e2 WHERE e2.topic = e.topic AND e2.ts < $__from / 1000) AND e.topic LIKE '%/status'\nORDER BY time",
+          "timeColumns": [
+            "time",
+            "ts"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "ONLINE": {
+                  "color": "green",
+                  "index": 0
+                },
+                "OFFLINE": {
+                  "color": "red",
+                  "index": 1
+                },
+                "OPEN": {
+                  "color": "orange",
+                  "index": 2
+                },
+                "CLOSED": {
+                  "color": "green",
+                  "index": 3
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0
+          },
+          "displayName": "${__field.labels.hub}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "hub"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": true
+            }
+          }
+        }
+      ],
+      "id": 2,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "telemetry-sqlite"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 16,
+        "h": 6
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Telemetry received",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "telemetry-sqlite"
+          },
+          "refId": "A",
+          "queryType": "table",
+          "rawQueryText": "SELECT hub, MIN(100.0, ROUND(100.0 * SUM(COALESCE(interval_s, 300)) / (($__to - $__from) / 1000.0), 1))\n       AS received\nFROM device_5m WHERE ts >= $__from / 1000 AND ts < $__to / 1000 GROUP BY hub ORDER BY hub",
+          "queryText": "SELECT hub, MIN(100.0, ROUND(100.0 * SUM(COALESCE(interval_s, 300)) / (($__to - $__from) / 1000.0), 1))\n       AS received\nFROM device_5m WHERE ts >= $__from / 1000 AND ts < $__to / 1000 GROUP BY hub ORDER BY hub",
+          "timeColumns": []
+        }
+      ],
+      "description": "Share of the time range covered by device telemetry (every 5 minutes). Below 100 % means missed reports: offline, WiFi or broker problems, or the node was added during the range.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 95
+              },
+              {
+                "color": "green",
+                "value": 99
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": true,
+          "calcs": [],
+          "fields": "/^received$/"
+        },
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left"
+      },
+      "id": 3,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "telemetry-sqlite"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 6,
+        "w": 8,
+        "h": 6
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "WiFi RSSI",
+      "description": "Signal strength at each node. Below about -80 dBm connections start to drop.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "telemetry-sqlite"
+          },
+          "refId": "A",
+          "queryType": "table",
+          "rawQueryText": "SELECT ts AS time, hub, rssi FROM device_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts",
+          "queryText": "SELECT ts AS time, hub, rssi FROM device_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts",
+          "timeColumns": [
+            "time",
+            "ts"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dBm",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "showPoints": "never",
+            "axisBorderShow": false,
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": -80
+              },
+              {
+                "color": "green",
+                "value": -70
+              }
+            ]
+          },
+          "displayName": "${__field.labels.hub}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "hub"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": true
+            }
+          }
+        }
+      ],
+      "id": 4,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "telemetry-sqlite"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Uptime",
+      "description": "Time since each node last booted. Drops to 0 are restarts (see Recent boots).",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "telemetry-sqlite"
+          },
+          "refId": "A",
+          "queryType": "table",
+          "rawQueryText": "SELECT ts AS time, hub, uptime_s FROM device_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts",
+          "queryText": "SELECT ts AS time, hub, uptime_s FROM device_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts",
+          "timeColumns": [
+            "time",
+            "ts"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dtdurations",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "showPoints": "never",
+            "axisBorderShow": false,
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 0,
+          "displayName": "${__field.labels.hub}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "hub"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": true
+            }
+          }
+        }
+      ],
+      "id": 5,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "telemetry-sqlite"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Free memory (heap)",
+      "description": "Free heap on each ESP32 (about 320 KB RAM in total). A steady fall over days would mean a memory leak.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "telemetry-sqlite"
+          },
+          "refId": "A",
+          "queryType": "table",
+          "rawQueryText": "SELECT ts AS time, hub, free_heap FROM device_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts",
+          "queryText": "SELECT ts AS time, hub, free_heap FROM device_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts",
+          "timeColumns": [
+            "time",
+            "ts"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "showPoints": "never",
+            "axisBorderShow": false,
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 0,
+          "displayName": "${__field.labels.hub}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "hub"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": true
+            }
+          }
+        }
+      ],
+      "id": 6,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "telemetry-sqlite"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Reconnects since boot",
+      "description": "WiFi drops and MQTT reconnects since each node's last boot. Rising counts mean an unstable connection.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "telemetry-sqlite"
+          },
+          "refId": "A",
+          "queryType": "table",
+          "rawQueryText": "SELECT ts AS time, hub || ' WiFi' AS hub, wifi_reconnects FROM device_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 UNION ALL SELECT ts AS time, hub || ' MQTT' AS hub, mqtt_connects - 1 FROM device_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY time",
+          "queryText": "SELECT ts AS time, hub || ' WiFi' AS hub, wifi_reconnects FROM device_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 UNION ALL SELECT ts AS time, hub || ' MQTT' AS hub, mqtt_connects - 1 FROM device_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY time",
+          "timeColumns": [
+            "time",
+            "ts"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "showPoints": "never",
+            "axisBorderShow": false,
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "lineInterpolation": "stepAfter"
+          },
+          "decimals": 0,
+          "displayName": "${__field.labels.hub}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "hub"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": true
+            }
+          }
+        }
+      ],
+      "id": 7,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "telemetry-sqlite"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "table",
+      "title": "Recent boots",
+      "description": "Every restart (the first connect after a boot), with the firmware version and the reset reason. SOFTWARE is normal after an OTA update or a WiFi recovery restart.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "telemetry-sqlite"
+          },
+          "refId": "A",
+          "queryType": "table",
+          "rawQueryText": "SELECT ts AS time, hub, firmware, reset_reason FROM boots WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts DESC",
+          "queryText": "SELECT ts AS time, hub, firmware, reset_reason FROM boots WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts DESC",
+          "timeColumns": [
+            "time",
+            "ts"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "reset_reason"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "POWERON": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "SOFTWARE": {
+                        "color": "green",
+                        "index": 1
+                      },
+                      "EXTERNAL": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "DEEPSLEEP": {
+                        "color": "blue",
+                        "index": 3
+                      },
+                      "BROWNOUT": {
+                        "color": "red",
+                        "index": 4
+                      },
+                      "PANIC": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "INT_WATCHDOG": {
+                        "color": "red",
+                        "index": 6
+                      },
+                      "TASK_WATCHDOG": {
+                        "color": "red",
+                        "index": 7
+                      },
+                      "WATCHDOG": {
+                        "color": "red",
+                        "index": 8
+                      },
+                      "UNKNOWN": {
+                        "color": "text",
+                        "index": 9
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "time"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              },
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 8,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "telemetry-sqlite"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 7
+      }
+    }
+  ]
+}

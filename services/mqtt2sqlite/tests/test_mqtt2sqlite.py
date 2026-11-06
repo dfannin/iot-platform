@@ -208,6 +208,106 @@ class StoreTests(unittest.TestCase):
         reader.close()
 
 
+class TopicMatchTests(unittest.TestCase):
+
+    def test_topic_matches(self):
+        self.assertTrue(m.topic_matches("sensor/#", "sensor/backyard/gate01"))
+        self.assertTrue(m.topic_matches("sensor/+/status", "sensor/shed/status"))
+        self.assertFalse(m.topic_matches("sensor/+/status", "sensor/shed/battery"))
+        self.assertFalse(m.topic_matches("sensor/#", "telemetry/shed/battery"))
+        self.assertFalse(m.topic_matches("", "sensor/x"))
+
+
+def door(state, t, reason="State changed"):
+    return payload(hub="backyard00", sensor="Backyard Gate", state=state, reason=reason, epoch=t)
+
+
+def status(state, t=None, reason="Connected", **extra):
+    fields = dict(hub="backyard00", sensor="Backyard Monitor", state=state, reason=reason, **extra)
+    if t is None:
+        fields["timestamp"] = "unknown"
+    else:
+        fields["epoch"] = t
+    return payload(**fields)
+
+
+class StateHistoryTests(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self.tmp.name, "t.db")
+        self.store = m.Store(self.path)
+
+    def tearDown(self):
+        self.store.close()
+        self.tmp.cleanup()
+
+    def add(self, topic, raw, received):
+        msg = m.parse_state_message(topic, raw, received)
+        return self.store.insert_states([msg] if msg else [])
+
+    def events(self):
+        return self.store.db.execute(
+            "SELECT ts, hub, sensor, topic, state, previous, reason FROM state_events ORDER BY id").fetchall()
+
+    def test_only_changes_recorded(self):
+        gate = "sensor/backyard/gate01"
+        self.assertEqual(self.add(gate, door("CLOSED", NOW, "Initial state"), NOW), (1, 0))
+        self.assertEqual(self.add(gate, door("CLOSED", NOW + 300, "Periodic update"), NOW + 300), (0, 0))
+        self.assertEqual(self.add(gate, door("OPEN", NOW + 400), NOW + 400), (1, 0))
+        self.assertEqual(self.add(gate, door("CLOSED", NOW + 460), NOW + 460), (1, 0))
+        self.assertEqual(self.events(), [
+            (NOW, "backyard00", "Backyard Gate", gate, "CLOSED", None, "Initial state"),
+            (NOW + 400, "backyard00", "Backyard Gate", gate, "OPEN", "CLOSED", "State changed"),
+            (NOW + 460, "backyard00", "Backyard Gate", gate, "CLOSED", "OPEN", "State changed"),
+        ])
+
+    def test_restart_and_retained_replay_add_nothing(self):
+        gate = "sensor/backyard/gate01"
+        self.add(gate, door("OPEN", NOW), NOW)
+        self.store.close()
+        self.store = m.Store(self.path)               # service restart
+        self.assertEqual(self.add(gate, door("OPEN", NOW), NOW + 900), (0, 0))
+        self.assertEqual(len(self.events()), 1)
+
+    def test_offline_uses_received_time(self):
+        st = "sensor/backyard/status"
+        self.add(st, status("ONLINE", NOW), NOW)
+        self.add(st, status("OFFLINE", reason="Connection lost"), NOW + 1000)
+        self.assertEqual(self.events()[-1][0], NOW + 1000)
+        self.assertEqual(self.events()[-1][4:6], ("OFFLINE", "ONLINE"))
+
+    def test_boots_recorded_once(self):
+        st = "sensor/backyard/status"
+        started = status("ONLINE", NOW, "Started", firmware="4.1", reset_reason="BROWNOUT")
+        self.assertEqual(self.add(st, started, NOW), (1, 1))
+        self.assertEqual(self.add(st, started, NOW + 60), (0, 0))          # retained replay
+        self.add(st, status("ONLINE", NOW + 500, "Reconnected", firmware="4.1", reset_reason="BROWNOUT"), NOW + 500)
+        rows = self.store.db.execute("SELECT ts, hub, firmware, reset_reason FROM boots").fetchall()
+        self.assertEqual(rows, [(NOW, "backyard00", "4.1", "BROWNOUT")])
+
+    def test_reboot_without_offline_still_a_boot(self):
+        # A quick reboot can go ONLINE -> ONLINE (no state change), but it is a boot
+        st = "sensor/shed/status"
+        self.add(st, status("ONLINE", NOW, "Started", firmware="1.9.1", reset_reason="POWERON"), NOW)
+        self.assertEqual(self.add(st, status("ONLINE", NOW + 700, "Started", firmware="1.9.2",
+                                             reset_reason="SOFTWARE"), NOW + 700), (0, 1))
+
+    def test_messages_without_state_ignored(self):
+        self.assertIsNone(m.parse_state_message("sensor/x", b"not json", NOW))
+        self.assertIsNone(m.parse_state_message("sensor/x", payload(hub="h"), NOW))
+
+    def test_ingester_routes_by_topic(self):
+        ing = m.Ingester.__new__(m.Ingester)              # no MQTT, no config file
+        ing.state_topic = "sensor/#"
+        ing.stats = {"ignored": 0}
+        readings, states = [], []
+        ing._handle("sensor/backyard/gate01", door("OPEN", NOW), NOW, readings, states)
+        ing._handle("telemetry/shed/battery", power_msg(NOW, 1.0, 13.0), NOW, readings, states)
+        self.assertEqual((len(readings), len(states)), (1, 1))
+        self.assertEqual(states[0].state, "OPEN")
+
+
 class FirmwareMessageTests(unittest.TestCase):
     """Messages exactly as esp32-monitor v1.8 publishes them."""
 

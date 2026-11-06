@@ -4,10 +4,13 @@
 [mqtt]
 host = localhost
 port = 1883
-# MQTT user for the ingester (it only needs to read telemetry/#)
+# MQTT user for the ingester (it reads telemetry/# and sensor/#)
 username = telemetry
 password = CHANGE_ME
 topic = telemetry/#
+# Alert-state messages (retained) for the state history (state_events) and boots
+# tables: door OPEN/CLOSED, ONLINE/OFFLINE, alarm states. Leave empty to turn off.
+state_topic = sensor/#
 client_id = mqtt2sqlite
 # TLS (not needed when the broker is on the same machine)
 tls = false
