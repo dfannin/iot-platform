@@ -21,6 +21,11 @@ named after the message's "type" field:
   day. Hourly summaries are kept forever.
 * Inserts are batched (one transaction every flush_interval_s) to keep writes
   to the eMMC low.
+* State history: it also subscribes to sensor/# (the retained alert-state
+  messages) and records every change of a topic's "state" in state_events
+  (door OPEN/CLOSED, device ONLINE/OFFLINE, LOW, COLD, ...), and every boot
+  (an ONLINE message with reason "Started") in boots, with the firmware
+  version and reset reason. Both are kept forever; they are small.
 
 Runs under Python 3.10+ with paho-mqtt 2.x. See README.md for installation.
 """
@@ -69,6 +74,8 @@ DEFAULTS = {
         "username": "",
         "password": "",
         "topic": "telemetry/#",
+        # Alert-state messages for state_events and boots; empty = off
+        "state_topic": "sensor/#",
         "client_id": "mqtt2sqlite",
         "tls": "false",
         "ca_file": "",
@@ -183,6 +190,64 @@ def hour_of(ts: int, interval_s: Optional[int], default_interval_s: int) -> int:
     return middle - middle % HOUR
 
 
+def topic_matches(sub: str, topic: str) -> bool:
+    """MQTT topic filter match with + and # wildcards."""
+    if not sub:
+        return False
+    sp, tp = sub.split("/"), topic.split("/")
+    for i, part in enumerate(sp):
+        if part == "#":
+            return True
+        if i >= len(tp) or (part != "+" and part != tp[i]):
+            return False
+    return len(sp) == len(tp)
+
+
+@dataclass
+class StateMsg:
+    """One sensor/... message: the topic's state at time ts."""
+    topic: str
+    hub: str
+    sensor: str
+    state: str
+    reason: str
+    ts: int
+    received: int
+    firmware: Optional[str] = None
+    reset_reason: Optional[str] = None
+
+
+def _text(value, limit: int = 128) -> Optional[str]:
+    return value[:limit] if isinstance(value, str) and value else None
+
+
+def parse_state_message(topic: str, payload: bytes, received: float) -> Optional[StateMsg]:
+    """Turn a sensor/... message into a StateMsg, or return None if it has no state."""
+    try:
+        data = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    state = _text(data.get("state"), 32)
+    if state is None:
+        return None
+    received_s = int(received)
+    epoch = data.get("epoch")
+    ts = int(epoch) if _is_number(epoch) and EPOCH_MIN <= epoch <= received_s + MAX_FUTURE_S else received_s
+    return StateMsg(
+        topic=topic,
+        hub=_text(data.get("hub"), 64) or topic.rsplit("/", 1)[0],
+        sensor=_text(data.get("sensor"), 64) or topic.rsplit("/", 1)[-1],
+        state=state.upper(),
+        reason=_text(data.get("reason")) or "",
+        ts=ts,
+        received=received_s,
+        firmware=_text(data.get("firmware"), 32),
+        reset_reason=_text(data.get("reset_reason"), 32),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Storage
 # ---------------------------------------------------------------------------
@@ -203,6 +268,19 @@ class Store:
         self.db.execute("PRAGMA synchronous=NORMAL")    # safe with WAL, fewer flushes to eMMC
         self.db.execute("PRAGMA busy_timeout=30000")
         self._columns: Dict[str, Set[str]] = {}
+        self.db.executescript("""
+            CREATE TABLE IF NOT EXISTS state_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, hub TEXT, sensor TEXT,
+                topic TEXT NOT NULL, state TEXT NOT NULL, previous TEXT, reason TEXT,
+                received INTEGER);
+            CREATE INDEX IF NOT EXISTS state_events_ts ON state_events (ts);
+            CREATE INDEX IF NOT EXISTS state_events_topic_ts ON state_events (topic, ts);
+            CREATE TABLE IF NOT EXISTS last_state (
+                topic TEXT PRIMARY KEY, state TEXT NOT NULL, ts INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS boots (
+                ts INTEGER NOT NULL, hub TEXT NOT NULL, firmware TEXT, reset_reason TEXT,
+                received INTEGER, PRIMARY KEY (hub, ts)) WITHOUT ROWID;
+        """)
 
     def close(self) -> None:
         self.db.close()
@@ -394,6 +472,42 @@ class Store:
             raise
         return deleted
 
+    def insert_states(self, msgs: List[StateMsg]) -> Tuple[int, int]:
+        """Record state changes and boots in one transaction.
+
+        A row goes into state_events only when a topic's state differs from the
+        last one recorded (kept in last_state, so a restart or a retained replay
+        adds nothing). Returns (state changes, boots) inserted.
+        """
+        changes = boots = 0
+        if not msgs:
+            return changes, boots
+        self.db.execute("BEGIN")
+        try:
+            for m in msgs:
+                row = self.db.execute("SELECT state, ts FROM last_state WHERE topic = ?",
+                                      (m.topic,)).fetchone()
+                if row is None or row[0] != m.state:
+                    self.db.execute(
+                        "INSERT INTO state_events (ts, hub, sensor, topic, state, previous, reason, received)"
+                        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (m.ts, m.hub, m.sensor, m.topic, m.state, row[0] if row else None,
+                         m.reason, m.received))
+                    self.db.execute("INSERT OR REPLACE INTO last_state VALUES (?, ?, ?)",
+                                    (m.topic, m.state, m.ts))
+                    changes += 1
+                if m.state == "ONLINE" and m.reason == "Started":
+                    cur = self.db.execute(
+                        "INSERT OR IGNORE INTO boots (ts, hub, firmware, reset_reason, received)"
+                        " VALUES (?, ?, ?, ?, ?)",
+                        (m.ts, m.hub, m.firmware, m.reset_reason, m.received))
+                    boots += max(cur.rowcount, 0)
+            self.db.execute("COMMIT")
+        except Exception:
+            self.db.execute("ROLLBACK")
+            raise
+        return changes, boots
+
     def optimize(self) -> None:
         self.db.execute("PRAGMA optimize")
         self.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -431,7 +545,8 @@ class Ingester:
         self.store = Store(db["path"], db.getint("default_interval_s"))
         self.flush_interval = db.getint("flush_interval_s")
         self.retention_days = db.getint("raw_retention_days")
-        self.stats = {"messages": 0, "stored": 0, "ignored": 0}
+        self.state_topic = cfg["mqtt"]["state_topic"].strip()
+        self.stats = {"messages": 0, "stored": 0, "ignored": 0, "state_changes": 0, "boots": 0}
 
     # -- MQTT callbacks (run in the paho thread) --
 
@@ -439,9 +554,10 @@ class Ingester:
         if reason_code.is_failure:
             LOG.error("MQTT connect failed: %s", reason_code)
             return
-        topic = self.cfg["mqtt"]["topic"]
-        LOG.info("MQTT connected, subscribing to %s", topic)
-        client.subscribe(topic, qos=1)
+        topics = [self.cfg["mqtt"]["topic"]] + ([self.state_topic] if self.state_topic else [])
+        LOG.info("MQTT connected, subscribing to %s", ", ".join(topics))
+        for topic in topics:
+            client.subscribe(topic, qos=1)
 
     def on_disconnect(self, client, userdata, flags, reason_code, properties=None):
         if not self.stop_event.is_set():
@@ -469,13 +585,33 @@ class Ingester:
         client.connect_async(m["host"], m.getint("port"), keepalive=60)
         return client
 
-    def _flush(self, pending: List[Reading]) -> None:
-        if not pending:
+    def _handle(self, topic: str, payload: bytes, received: float,
+                readings: List[Reading], states: List[StateMsg]) -> None:
+        """Route one message: state topics to states, everything else to readings."""
+        if topic_matches(self.state_topic, topic):
+            msg = parse_state_message(topic, payload, received)
+            if msg is not None:
+                states.append(msg)
             return
-        stored = store_batch(self.store, pending)
-        self.stats["stored"] += stored
-        LOG.debug("Stored %d of %d readings", stored, len(pending))
-        pending.clear()
+        reading = parse_message(topic, payload, received)
+        if reading is None:
+            self.stats["ignored"] += 1
+        else:
+            readings.append(reading)
+
+    def _flush(self, readings: List[Reading], states: List[StateMsg]) -> None:
+        if readings:
+            stored = store_batch(self.store, readings)
+            self.stats["stored"] += stored
+            LOG.debug("Stored %d of %d readings", stored, len(readings))
+            readings.clear()
+        if states:
+            changes, boots = self.store.insert_states(states)
+            self.stats["state_changes"] += changes
+            self.stats["boots"] += boots
+            if changes or boots:
+                LOG.debug("Recorded %d state changes, %d boots", changes, boots)
+            states.clear()
 
     def _maintenance(self) -> None:
         deleted = self.store.apply_retention(self.retention_days)
@@ -485,7 +621,8 @@ class Ingester:
     def run(self) -> None:
         client = self._mqtt_client()
         client.loop_start()
-        pending: List[Reading] = []
+        readings: List[Reading] = []
+        states: List[StateMsg] = []
         now = time.monotonic()
         next_flush = now + self.flush_interval
         next_stats = now + HOUR
@@ -495,21 +632,18 @@ class Ingester:
                 try:
                     topic, payload, received = self.messages.get(timeout=1.0)
                     self.stats["messages"] += 1
-                    reading = parse_message(topic, payload, received)
-                    if reading is None:
-                        self.stats["ignored"] += 1
-                    else:
-                        pending.append(reading)
+                    self._handle(topic, payload, received, readings, states)
                 except queue.Empty:
                     pass
 
                 now = time.monotonic()
-                if now >= next_flush or len(pending) >= BATCH_MAX:
-                    self._flush(pending)
+                if now >= next_flush or len(readings) + len(states) >= BATCH_MAX:
+                    self._flush(readings, states)
                     next_flush = now + self.flush_interval
                 if now >= next_stats:
                     LOG.info("Last hour: %(messages)d messages, %(stored)d stored, "
-                             "%(ignored)d ignored", self.stats)
+                             "%(ignored)d ignored, %(state_changes)d state changes, "
+                             "%(boots)d boots", self.stats)
                     self.stats = dict.fromkeys(self.stats, 0)
                     next_stats = now + HOUR
                 if now >= next_maintenance:
@@ -524,10 +658,8 @@ class Ingester:
                     topic, payload, received = self.messages.get_nowait()
                 except queue.Empty:
                     break
-                reading = parse_message(topic, payload, received)
-                if reading is not None:
-                    pending.append(reading)
-            self._flush(pending)
+                self._handle(topic, payload, received, readings, states)
+            self._flush(readings, states)
             self.store.close()
             LOG.info("Stopped")
 
