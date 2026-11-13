@@ -4,7 +4,7 @@
     {
       "orgId": 1,
       "name": "slack-alerts",
-      "template": "{{ define \"slack-alerts.title\" -}}\n{{ if eq .Status \"firing\" }}FIRING{{ else }}RESOLVED{{ end }}: {{ .CommonLabels.alertname }}\n{{- with .CommonLabels.project }} ({{ . }}){{ end }}\n{{- end }}\n\n{{ define \"slack-alerts.text\" -}}\n{{ range .Alerts -}}\n{{ if eq .Status \"firing\" }}:rotating_light:{{ else }}:white_check_mark:{{ end }} *{{ .Annotations.summary }}*{{ with .Labels.severity }} [{{ . }}]{{ end }}\n{{ with .Annotations.description }}{{ . }}\n{{ end -}}\n{{ if eq .Status \"firing\" -}}\nSince {{ .StartsAt.Local.Format \"Mon 2006-01-02 15:04 MST\" }}\n{{- else -}}\nResolved {{ .EndsAt.Local.Format \"Mon 2006-01-02 15:04 MST\" }}\n{{- end }}\n{{ end -}}\n{{- end }}\n"
+      "template": "{{ define \"slack-alerts.title\" -}}\n{{ if eq .Status \"firing\" }}FIRING{{ else }}RESOLVED{{ end }}: {{ .CommonLabels.alertname }}\n{{- with .CommonLabels.project }} ({{ . }}){{ end }}\n{{- end }}\n\n{{ define \"slack-alerts.text\" -}}\n{{ range .Alerts -}}\n{{ if eq .Status \"firing\" }}:rotating_light:{{ else }}:white_check_mark:{{ end }} *{{ .Annotations.summary }}*{{ with .Labels.severity }} [{{ . }}]{{ end }}\n{{ if eq .Status \"firing\" -}}\n{{ with .Annotations.description }}{{ . }}\n{{ end -}}\nSince {{ .StartsAt.Local.Format \"Mon 2006-01-02 15:04 MST\" }}\n{{- else -}}\nResolved {{ .EndsAt.Local.Format \"Mon 2006-01-02 15:04 MST\" }}\n{{- end }}\n{{ end -}}\n{{- end }}\n"
     }
   ],
   "contactPoints": [
