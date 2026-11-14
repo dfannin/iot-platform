@@ -49,15 +49,10 @@ in Grafana. Anything made there by hand is replaced by this file's policy tree.
      "$SLACK_ALERTS_WEBHOOK_URL"'
    ```
 
-2. Drop-in and shared provisioning file:
+2. Install the drop-in and the shared provisioning file, with Grafana restarted:
 
    ```bash
-   sudo install -D -m 644 deploy/grafana/shared/grafana-server.service.d/alerting.conf \
-       /etc/systemd/system/grafana-server.service.d/alerting.conf
-   sudo install -d -m 755 /etc/grafana/provisioning/alerting
-   sudo install -m 644 deploy/grafana/shared/alerting/shared-alerting.json \
-       /etc/grafana/provisioning/alerting/
-   sudo systemctl daemon-reload && sudo systemctl restart grafana-server
+   sudo deploy/install.sh --shared-alerting
    ```
 
 3. Check: `journalctl -u grafana-server --since "5 min ago" | grep -i -E "provision|alert" | grep -i -E "error|fail"`
