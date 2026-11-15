@@ -600,6 +600,21 @@ print(df.set_index("time").resample("1D")[["bus_voltage", "current"]].agg(["min"
 
 ## Troubleshooting
 
+### Online / offline Timeline Red, but the Devices Table Says ONLINE
+A node that reconnects quickly (a short WiFi drop, or a restart while the broker still holds its old connection) makes the broker publish the old connection's OFFLINE last will and the new ONLINE in the same second. The OFFLINE has no time of its own, so the server's receive time is used, while the ONLINE carries the node's clock, which can be a second earlier. Before this was fixed, the ONLINE could be recorded with an earlier time than the OFFLINE, and the timeline (sorted by time) ended on OFFLINE while the table (latest recorded) showed ONLINE. `mqtt2sqlite` now keeps each topic's events in time order. To fix rows recorded by an older version, stop the service, repair, and start it again:
+
+```bash
+sudo systemctl stop mqtt2sqlite
+```
+
+```bash
+sudo -u telemetry /opt/mqtt2sqlite/venv/bin/python /opt/mqtt2sqlite/mqtt2sqlite.py -c /etc/mqtt2sqlite/mqtt2sqlite.ini --repair-state-order
+```
+
+```bash
+sudo systemctl start mqtt2sqlite
+```
+
 ### Grafana: "attempt to write a readonly database" or "unable to open database file"
 - Check the directory: `ls -ld /var/lib/telemetry` should show `drwxrwsr-x telemetry telemetry`. The `s` is the setgid bit.
 - Check that the drop-in is active: `systemctl show grafana-server -p SupplementaryGroups` should show `telemetry`. If it doesn't, run `sudo systemctl daemon-reload` and restart Grafana.

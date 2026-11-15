@@ -277,6 +277,39 @@ class StateHistoryTests(unittest.TestCase):
         self.assertEqual(self.events()[-1][0], NOW + 1000)
         self.assertEqual(self.events()[-1][4:6], ("OFFLINE", "ONLINE"))
 
+    def test_quick_reconnect_keeps_time_order(self):
+        # Broker publishes the old session's OFFLINE (server time) and the device's ONLINE
+        # (device clock, a second behind) in the same second: ONLINE must stay last
+        st = "sensor/garage/status"
+        self.add(st, status("ONLINE", NOW, "Started"), NOW)
+        self.add(st, status("OFFLINE", reason="Connection lost"), NOW + 600)
+        self.add(st, status("ONLINE", NOW + 599, "Reconnected"), NOW + 600)
+        ev = self.events()
+        self.assertEqual([(e[0], e[4]) for e in ev], [(NOW, "ONLINE"), (NOW + 600, "OFFLINE"), (NOW + 601, "ONLINE")])
+        last = self.store.db.execute("SELECT state, ts FROM last_state WHERE topic = ?", (st,)).fetchone()
+        self.assertEqual(last, ("ONLINE", NOW + 601))
+
+    def test_same_second_change_gets_next_second(self):
+        st = "sensor/garage/status"
+        self.add(st, status("OFFLINE", reason="Connection lost"), NOW)
+        self.add(st, status("ONLINE", NOW, "Started"), NOW)
+        self.assertEqual([e[0] for e in self.events()], [NOW, NOW + 1])
+
+    def test_repair_state_order(self):
+        st, gate = "sensor/garage/status", "sensor/backyard/gate01"
+        ins = ("INSERT INTO state_events (ts, hub, sensor, topic, state, previous, reason, received)"
+               " VALUES (?, 'h', 's', ?, ?, NULL, 'r', ?)")
+        for ts, topic, state in [(NOW, st, "ONLINE"), (NOW + 10, gate, "OPEN"), (NOW + 600, st, "OFFLINE"),
+                                 (NOW + 599, st, "ONLINE"), (NOW + 20, gate, "CLOSED"), (NOW + 20, gate, "OPEN")]:
+            self.store.db.execute(ins, (ts, topic, state, ts))
+        self.store.db.execute("INSERT OR REPLACE INTO last_state VALUES (?, ?, ?)", (st, "ONLINE", NOW + 599))
+        self.store.db.commit()
+        self.assertEqual(self.store.repair_state_order(), 2)
+        self.assertEqual([e[0] for e in self.events()], [NOW, NOW + 10, NOW + 600, NOW + 601, NOW + 20, NOW + 21])
+        self.assertEqual(self.store.db.execute("SELECT ts FROM last_state WHERE topic = ?", (st,)).fetchone()[0],
+                         NOW + 601)
+        self.assertEqual(self.store.repair_state_order(), 0)  # idempotent
+
     def test_boots_recorded_once(self):
         st = "sensor/backyard/status"
         started = status("ONLINE", NOW, "Started", firmware="4.1", reset_reason="BROWNOUT")
