@@ -472,6 +472,30 @@ class Store:
             raise
         return deleted
 
+    def repair_state_order(self) -> int:
+        """Make each topic's state_events timestamps strictly increasing, in the order
+        the events were recorded (id). Fixes rows written before insert_states kept
+        them in order. Returns the number of rows changed."""
+        changed = 0
+        self.db.execute("BEGIN")
+        try:
+            last: dict = {}
+            rows = self.db.execute("SELECT id, topic, ts FROM state_events ORDER BY id").fetchall()
+            for row_id, topic, ts in rows:
+                prev = last.get(topic)
+                if prev is not None and ts <= prev:
+                    ts = prev + 1
+                    self.db.execute("UPDATE state_events SET ts = ? WHERE id = ?", (ts, row_id))
+                    changed += 1
+                last[topic] = ts
+            for topic, ts in last.items():
+                self.db.execute("UPDATE last_state SET ts = ? WHERE topic = ? AND ts < ?", (ts, topic, ts))
+            self.db.execute("COMMIT")
+        except Exception:
+            self.db.execute("ROLLBACK")
+            raise
+        return changed
+
     def insert_states(self, msgs: List[StateMsg]) -> Tuple[int, int]:
         """Record state changes and boots in one transaction.
 
@@ -488,13 +512,21 @@ class Store:
                 row = self.db.execute("SELECT state, ts FROM last_state WHERE topic = ?",
                                       (m.topic,)).fetchone()
                 if row is None or row[0] != m.state:
+                    # Keep each topic's events in time order. An OFFLINE last will has no
+                    # time of its own (server receive time is used), while the ONLINE that
+                    # follows a quick reconnect carries the device's clock: both arrive in
+                    # the same second, and the ONLINE can be stamped a second earlier. Then
+                    # the timeline ended on OFFLINE although the node was online.
+                    ts = m.ts
+                    if row is not None and ts <= row[1]:
+                        ts = row[1] + 1
                     self.db.execute(
                         "INSERT INTO state_events (ts, hub, sensor, topic, state, previous, reason, received)"
                         " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                        (m.ts, m.hub, m.sensor, m.topic, m.state, row[0] if row else None,
+                        (ts, m.hub, m.sensor, m.topic, m.state, row[0] if row else None,
                          m.reason, m.received))
                     self.db.execute("INSERT OR REPLACE INTO last_state VALUES (?, ?, ?)",
-                                    (m.topic, m.state, m.ts))
+                                    (m.topic, m.state, ts))
                     changes += 1
                 if m.state == "ONLINE" and m.reason == "Started":
                     cur = self.db.execute(
@@ -672,11 +704,21 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--config", "-c", help="INI config file (see mqtt2sqlite.ini.example)")
     parser.add_argument("--rebuild-hourly", action="store_true",
                         help="recompute all hourly summaries from the 5-minute data, then exit")
+    parser.add_argument("--repair-state-order", action="store_true",
+                        help="put each topic's state history back in time order, then exit")
     args = parser.parse_args(argv)
 
     cfg = load_config(args.config)
     logging.basicConfig(level=cfg["log"]["level"].upper(),
                         format="%(levelname)s %(message)s", stream=sys.stdout)
+
+    if args.repair_state_order:
+        db = cfg["database"]
+        store = Store(db["path"], db.getint("default_interval_s"))
+        count = store.repair_state_order()
+        store.close()
+        LOG.info("Repaired the time order of %d state events", count)
+        return 0
 
     if args.rebuild_hourly:
         db = cfg["database"]
