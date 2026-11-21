@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.2**: architecture agreed; the repository restructure is the next step |
+| Status | **Draft 0.3**: architecture agreed; the repository restructure is the next step |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -12,6 +12,7 @@
 |---|---|---|
 | 0.1 | 2026-11-21 | First version: keep MQTT + SQLite + Grafana + small Python services; add an MQTT message contract, a shared firmware library, a FastAPI control service and remote access through a NetBird mesh VPN |
 | 0.2 | 2026-11-21 | Security goal G7 and new §11 Security (threat model and protections per layer; decision A9; open items O7, O8). Constraint reworded: the code is small and testable (not teaching material). §12 states exactly what stays in `router-monitor` (collector, database, its dashboards and rules) and what moves here (host-wide Grafana alerting only). Sections 11–13 renumbered to 12–14 |
+| 0.3 | 2026-11-21 | Goals G8 (memory-limited, low-power firmware) and G9 (future network and server monitoring); constraints for ESP32 memory and power; §6.1 compile-time feature selection with CI budgets, §6.2 power classes; §9 device registry fields, including the device page URL; plain-text MQTT fallback removed by decision (A9, O7); new §12 Network and Server Monitoring (preliminary); decisions A10, A11; open items O9, O10. Sections 12–14 renumbered to 13–15 |
 
 ## Contents
 
@@ -26,9 +27,10 @@
 9. [Device Control](#9-device-control)
 10. [External Access](#10-external-access)
 11. [Security](#11-security)
-12. [Repository Layout (Proposed)](#12-repository-layout-proposed)
-13. [Decisions](#13-decisions)
-14. [Open Items](#14-open-items)
+12. [Network and Server Monitoring (Future)](#12-network-and-server-monitoring-future)
+13. [Repository Layout (Proposed)](#13-repository-layout-proposed)
+14. [Decisions](#14-decisions)
+15. [Open Items](#15-open-items)
 
 ## 1. Goals
 
@@ -41,11 +43,15 @@
 | G5 | Control and graphs can be reached from a browser or phone away from home | [§10](#10-external-access) |
 | G6 | Lightweight and open source; runs on the existing server | Throughout |
 | G7 | Reasonable protection against attackers: nothing reachable from the internet, every connection authenticated and encrypted, least privilege for devices and services, and a record of every control action | [§11](#11-security) |
+| G8 | ESP32 firmware fits memory-limited boards (features can be left out per device) and uses little power | [§6](#6-shared-firmware-library) |
+| G9 | *Future:* monitor the home network's servers, PCs and other devices in Grafana, with optional Slack alerts | [§12](#12-network-and-server-monitoring-future) |
 
 **Constraints:**
 - The server is a small fanless PC (Celeron N3350, 4 GB RAM, 32 GB eMMC) that already runs Mosquitto and Grafana. Write volume and memory use matter.
 - The only internet connection is an AT&T Internet Air gateway (fixed wireless over cellular), which almost certainly sits behind carrier-grade NAT (CGNAT): no inbound connections from the internet.
 - The code is small and testable: small single-purpose services and firmware modules, pure functions tested against fixtures, I/O kept at the edges.
+- The ESP32 devices have little memory (about 320 KB of usable RAM and 1.2–1.9 MB of flash per OTA app slot on a 4 MB board, with TLS alone taking roughly 40–50 KB of heap). A shared library must not force every feature onto every device.
+- The ESP32 devices should use little power. Some run on mains power, but others (the shed monitor) run on solar and battery, where every milliamp counts.
 
 ## 2. Where We Are Today
 
@@ -138,7 +144,8 @@ The contract is what makes a new device cheap: **a device that follows it gets s
 | `config/<loc>` | device → | yes | **New.** Current values of all settings, published after the device accepts (and saves to NVS) a change | Proposed |
 
 **Rules:**
-- Commands are never retained, so a reconnecting device does not repeat an old command.
+- Commands are never retained, so a reconnecting device does not repeat an old command. `set/` messages are retained only for sleepy devices ([§6.2](#62-low-power)), which pick them up when they wake and then clear them.
+- Devices connect with **TLS only**; there is no plain-text fallback (decision A9).
 - The device is the authority. It validates every `cmd/` and `set/`, refuses unsafe ones (for example, closing a garage door with an obstruction), and reports the result on `event/` or `config/`. The server never assumes a command worked.
 - `meta/` follows the shape of Home Assistant MQTT discovery closely enough that discovery messages can be generated from it later without firmware changes.
 - **ACL:** each device user may publish only its own `sensor/<loc>/#`, `telemetry/<loc>/#`, `event/<loc>/#`, `meta/<loc>`, `config/<loc>` and may subscribe to `cmd/<loc>/#` and `set/<loc>/#`. Only the control service's user may publish `cmd/#` and `set/#`.
@@ -156,12 +163,43 @@ A new Arduino library repository, `esp32-iot-common`, holds what every device re
 
 Device sketches keep only their own sensors, actuators and alarm logic. The library is installed into the Arduino `libraries/` folder (or added as a git submodule) and has its own version and CI build.
 
+### 6.1 Leaving Features Out (Memory)
+
+Each feature is a separate module switched on or off **at compile time** in the device's `settings.h`, so a disabled feature costs no flash and no RAM:
+
+```cpp
+// settings.h (per device)
+#define IOT_FEATURE_WEB        1   // web page and /status JSON
+#define IOT_FEATURE_OTA        1   // over-the-air update
+#define IOT_FEATURE_MDNS       1
+#define IOT_FEATURE_WIFI_DIAG  0   // WiFi survey and antenna test pages
+#define IOT_FEATURE_SETTINGS   1   // set/ and config/ topics, NVS storage
+#define IOT_FEATURE_META       1   // meta/ self-description
+```
+
+- **Required core** (always on): WiFi, MQTT over TLS, NTP, last will/status. Everything else is optional.
+- **Defaults** suit a mains-powered board; a small or battery device turns features off.
+- **Budgets checked in CI:** the build prints flash and static RAM use per device, and fails above a set limit (for example 85 % of the app slot), so growth is noticed when it happens. The device reports `free_heap` and `min_free_heap` in telemetry (already done), and the Device Health dashboard shows them.
+- **Memory habits in the library:** fixed-size buffers instead of `String` concatenation, `PROGMEM` for web pages, one TLS client reused, JSON written into a fixed buffer.
+- `meta/` lists the features compiled in, so the control service shows only what the device can do.
+
+### 6.2 Low Power
+
+Devices declare one of two **power classes** in `meta/`:
+
+| Class | Examples | How it saves power | Consequence |
+|---|---|---|---|
+| **Always connected** | Garage (must react to commands), doors | WiFi modem sleep (`WiFi.setSleep(true)`), CPU at 80 MHz, Bluetooth off, sensors read only as often as needed, telemetry aggregated on the device and sent every 5 minutes | Commands arrive within about a second |
+| **Sleepy** | A future battery sensor; possibly the shed monitor | Deep sleep between readings; wakes on a timer or a GPIO (door switch), connects, publishes, checks for settings, sleeps again | Cannot receive commands while asleep: its settings use **retained** `set/` messages, which it reads on waking, and the control page shows "applies at next wake-up" |
+
+Library rules for both classes: no busy loops (block on events or `delay()`, which lets the CPU idle), Bluetooth off unless used, the radio used in short bursts, LEDs off or dimmed by default, and brown-out and low-battery states reported on `sensor/<loc>/status`.
+
 ## 7. Charts and Events in Grafana
 
 - **Generated dashboards.** Both projects already build dashboards with `build_dashboards.py` (Python → JSON, provisioned from files, checked by tests). Merge them into one generator in this repository with reusable helpers: a device-health row, a state timeline from `state_events`, a telemetry graph by `hub/sensor/field`, an events table. A new chart is a few lines of Python.
 - **Views, not tables.** Grafana queries views (the router-monitor rule), so tables can change underneath without breaking dashboards.
 - **Folders by domain:** Devices (health), Shed, Doors, Garage, Router. One SQLite datasource per database.
-- **Device integrations.** A device repository may ship its own panels and alert rules in an `integration/` folder that the platform's generator and installer pick up ([§12](#12-repository-layout-proposed)).
+- **Device integrations.** A device repository may ship its own panels and alert rules in an `integration/` folder that the platform's generator and installer pick up ([§13](#13-repository-layout-proposed)).
 
 ## 8. Slack Alerts and Filtering
 
@@ -209,7 +247,20 @@ Match fields: `topic` (MQTT wildcard), `hub`, `state`, `severity`. Actions: `pos
 
 A small **control service** (Python, FastAPI + paho-mqtt + SQLite; one process, well under 100 MB):
 
-- **Device registry** from `meta/#`, `config/#`, `sensor/#` and `sensor/<loc>/status`: which devices exist, whether they are online, their state, settings and commands.
+- **Device registry** built from `meta/#`, `config/#`, `sensor/#` and `sensor/<loc>/status`, stored in SQLite (so Grafana can show it too):
+
+  | Field | Source | Example |
+  |---|---|---|
+  | Location, hub | `meta/` | `garage`, `garage00` |
+  | Description, board, firmware version | `meta/` | Garage door controller, DevKitC-V4, 2.3.0 |
+  | **Device page URL** | `meta/` (`url`); the device knows its own address | `http://garage00.local/` (link to the device's own web page) |
+  | IP address, MAC-free identity | `meta/` / last connection | `192.168.1.42` |
+  | Power class, features | `meta/` | always connected; web, OTA, settings |
+  | Online/offline, last seen | `sensor/<loc>/status`, any message | ONLINE, 12 s ago |
+  | Current states | `sensor/<loc>/#` | left: CLOSED, right: OPEN |
+  | Settings (current values), commands | `config/<loc>`, `meta/` | `close_warn_s = 30`; OPEN/CLOSE/STOP |
+
+  The registry page lists every device with a link to its own web page. The link uses the IP address as well as the `.local` name, because mDNS names do not resolve over the VPN. Reaching the device pages from outside the home needs a NetBird route to the IoT addresses ([§10](#10-external-access)); the device pages stay read-only or password-protected ([§11](#11-security)).
 - **Web page generated from `meta/`:** server-rendered HTML with htmx (no JavaScript build), usable on a phone. A numeric setting becomes a slider or number box, a boolean a switch, a command a button (with a confirmation for anything that moves something). A new device appears with no UI code.
 - **One command path:** the service publishes `cmd/` and `set/` as its own MQTT user, then waits for the device's `event/` or `config/` reply and shows the result (or a timeout).
 - **Audit table** in SQLite: who, what, when, from where (web or Slack), result. Shown in Grafana.
@@ -254,7 +305,7 @@ The server and each phone or laptop run a **NetBird** client and join a private 
 |---|---|
 | Tailscale | Same model with the most polished apps, but the coordination service is closed source. A fine substitute if NetBird disappoints |
 | Headscale | Open-source Tailscale coordination server; needs a VPS from day one |
-| Plain WireGuard | Needs an inbound port, blocked by CGNAT on IPv4. **Might work over IPv6**: see [Open Items](#14-open-items) |
+| Plain WireGuard | Needs an inbound port, blocked by CGNAT on IPv4. **Might work over IPv6**: see [Open Items](#15-open-items) |
 | Public tunnel (Cloudflare Tunnel, ngrok) | Puts the login page, and garage control, on the public internet; mostly closed source |
 
 **Limitation of every option:** when the gateway is down, remote access is down too. router-monitor already accepts the same limit for its Slack alerts.
@@ -283,7 +334,7 @@ The aim is **reasonable protection for a home system**: an attacker on the inter
 | **Network** | No public listeners. Firewall (`ufw`) on the server allows only the MQTT TLS port, Caddy (HTTPS) and SSH from the LAN and the VPN. Optional: put the ESP32s on a separate guest/IoT WiFi network if the gateway supports it |
 | **Remote access** | NetBird mesh VPN only; access rules let phones reach Caddy, not every port on the server; devices removed when lost |
 | **MQTT broker** | TLS listener for the LAN; plain-text listener on `localhost` only (for local services); `allow_anonymous false`; one user per device and per service; ACL per [§5](#5-the-mqtt-contract) |
-| **Devices** | Per-device MQTT credentials and CA certificate in `secrets.h`/`ca_cert.h` (not in git); OTA protected by a password; the device web page is read-only or password-protected for anything that changes state; commands and settings validated on the device |
+| **Devices** | MQTT over TLS only (the plain-text fallback is removed); per-device MQTT credentials and CA certificate in `secrets.h`/`ca_cert.h` (not in git); OTA protected by a password; the device web page is read-only or password-protected for anything that changes state; commands and settings validated on the device |
 | **Web (Caddy, control service, Grafana)** | HTTPS everywhere; control service login with hashed passwords, secure session cookies, CSRF protection and confirmation for actions that move hardware; Grafana anonymous access off, admin password changed, other users as Viewers |
 | **Slack** | Bot tokens in config files outside git; Socket Mode (outbound only); allow-list of user IDs for commands |
 | **Server** | Each service runs as its own system user with systemd hardening (`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, only the directories it needs writable); SSH by key only; automatic security updates |
@@ -292,10 +343,39 @@ The aim is **reasonable protection for a home system**: an attacker on the inter
 
 ### Known Gaps
 
-- **Plain-text fallback in the firmware.** The devices fall back to unencrypted MQTT if TLS fails. That is convenient but lets an attacker on the LAN force plain text (T2). The target is TLS-only devices (open item O7).
+- **Plain-text fallback in the current firmware.** Today's devices fall back to unencrypted MQTT if TLS fails, which would let an attacker on the LAN force plain text (T2). It was a debugging aid and is no longer needed: **decided to remove it** (A9). Until the firmware is updated (O7), the gap remains.
 - **No outside monitoring of the server itself.** If the server is down, nothing alerts (the same gap router-monitor accepts).
 
-## 12. Repository Layout (Proposed)
+## 12. Network and Server Monitoring (Future)
+
+> **Preliminary.** The requirements are not written yet (open item O9). This section records the intended shape so the IoT work does not block it.
+
+**Goal:** show the health of the home network's servers, PCs and other devices (NAS, printers, access points, TVs) in Grafana, with optional Slack alerts. It is **separate from the IoT controls**: no control service, no Caddy, no MQTT commands. Remote viewing comes for free through Grafana over the VPN.
+
+**Likely measurements:**
+
+| Kind | Applies to | Examples |
+|---|---|---|
+| Reachability | Every device with an address | Up/down by ping, response time, packet loss |
+| Services | Servers | HTTP/TLS checks (certificate expiry), SSH, DNS, Mosquitto, Grafana |
+| Host metrics | Linux servers and PCs | CPU, memory, disk space, temperature, load, uptime, systemd failed units |
+| Inventory | The network | New or unknown device appeared on the LAN (from the gateway's device list or an ARP scan) |
+
+**Preliminary direction:**
+
+- **A separate collector project** (`net-monitor`, own repository), like `router-monitor`: it owns its collection, storage and dashboards, and uses only the shared Grafana alerting (contact point and policy, label `project = net-monitor`) from this repository.
+- **Collection:** a host list in a config file. Use standard open-source agents where they fit (Prometheus `node_exporter` on Linux hosts for host metrics; ping/HTTP checks from the server, for example with `blackbox_exporter`) rather than writing them.
+- **Storage, to be chosen with the requirements:**
+
+  | Option | When it fits |
+  |---|---|
+  | **SQLite + small Python poller** (as `router-monitor`) | A few dozen hosts, ping and service checks every minute or more; one technology across the platform |
+  | **VictoriaMetrics (single node)** | Host metrics from agents at 15–60 s intervals; Prometheus-compatible, light (tens of MB of RAM), compact on disk, works with the existing exporters and Grafana |
+
+- **Alerts:** Grafana alert rules (host down for N minutes, disk above 90 %, certificate expiring) through the shared Slack contact point, filtered by `project` and `severity` like every other rule ([§8](#8-slack-alerts-and-filtering)).
+- **Security:** agents listen on the LAN only, and the firewall on each host allows their port only from the monitoring server ([§11](#11-security)).
+
+## 13. Repository Layout (Proposed)
 
 To be settled in the next discussion.
 
@@ -305,6 +385,7 @@ To be settled in the next discussion.
 | `esp32-iot-common` (new) | Arduino library for all firmware ([§6](#6-shared-firmware-library)) |
 | `esp32-door`, `esp32-monitor`, `esp32-garage` | Firmware only, plus an `integration/` folder (device manifest, dashboard panels, alert rules). `garage-control` moves into `esp32-garage/hardware/` |
 | `router-monitor` | Stays a standalone project: collector, database, its own dashboards and alert rules (see below) |
+| `net-monitor` (future) | Network and server monitoring ([§12](#12-network-and-server-monitoring-future)), built the same way as `router-monitor` |
 
 **What stays in `router-monitor` and what moves.** Only the *host-wide* Grafana pieces move; everything specific to the router stays:
 
@@ -330,7 +411,7 @@ The router's dashboards and rules stay with the router because they depend on it
 └── router-monitor/
 ```
 
-## 13. Decisions
+## 14. Decisions
 
 | ID | Decision | Alternatives considered | Consequences |
 |---|---|---|---|
@@ -342,9 +423,11 @@ The router's dashboards and rules stay with the router because they depend on it
 | A6 | Custom FastAPI control service with an htmx UI generated from `meta/`; hosts `garagebot` | Home Assistant; Node-RED Dashboard | Small and testable; we build the UI |
 | A7 | Remote access through a NetBird mesh VPN, hosted now, self-hosted later | Tailscale; Headscale; plain WireGuard; public tunnel | No open ports; the hosted provider coordinates but cannot read traffic; open-source exit path |
 | A8 | Retire Node-RED | Keep it | One fewer service on the server |
-| A9 | Security by layers ([§11](#11-security)): no public listeners, TLS and per-user ACLs on MQTT, logins on every web UI, least-privilege services, audit of every control action | Rely on the home network being trusted | Some setup work (users, ACLs, certificates); firmware drops the plain-text fallback |
+| A9 | Security by layers ([§11](#11-security)): no public listeners, TLS and per-user ACLs on MQTT, logins on every web UI, least-privilege services, audit of every control action | Rely on the home network being trusted | Some setup work (users, ACLs, certificates); devices connect with TLS only (plain-text fallback removed) |
+| A10 | Firmware features chosen at compile time per device; flash/RAM budgets checked in CI; two power classes (always connected, sleepy) ([§6](#6-shared-firmware-library)) | One full-featured build for all devices | Small boards and battery devices fit; sleepy devices take settings at the next wake-up |
+| A11 | Device registry in the control service, with a link to each device's own web page ([§9](#9-device-control)) | Devices found by hand or by mDNS browsing | One page lists every device, its state and its page |
 
-## 14. Open Items
+## 15. Open Items
 
 | # | Item | Notes |
 |---|---|---|
@@ -354,5 +437,7 @@ The router's dashboards and rules stay with the router because they depend on it
 | O4 | IPv6 test | Does the gateway give the server a public IPv6 address and allow an inbound IPv6 port? If so, plain WireGuard is possible with no third party |
 | O5 | Retire Node-RED | Confirm nothing still depends on it |
 | O6 | Control service security | Users and roles, which commands need confirmation, rate limits |
-| O7 | TLS-only firmware | Remove the plain-text MQTT fallback from the devices (in `esp32-iot-common`); plain text only on the broker's `localhost` listener |
+| O7 | TLS-only firmware | Decided (A9); to do: remove the plain-text MQTT fallback from `esp32-door`, `esp32-monitor` and `esp32-garage` (then in `esp32-iot-common`); plain text only on the broker's `localhost` listener |
 | O8 | Separate IoT WiFi network | Check whether the BGW530 can put the ESP32s on a guest/IoT network isolated from laptops and phones |
+| O9 | Network and server monitoring requirements | Which hosts, which measurements, retention, which alerts; then choose the storage ([§12](#12-network-and-server-monitoring-future)) |
+| O10 | Flash/RAM budgets and power classes per device | Measure today's builds; decide whether the shed monitor becomes a sleepy device |
