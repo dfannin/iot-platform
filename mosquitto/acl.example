@@ -48,7 +48,7 @@ topic write homeassistant/device/backyard00/config
 topic read cmd/backyard/#
 topic read set/backyard/#
 
-# esp32-shed (repository esp32-monitor until it is renamed)
+# esp32-shed (formerly esp32-monitor)
 user shed00
 topic write sensor/shed/#
 topic write telemetry/shed/#
