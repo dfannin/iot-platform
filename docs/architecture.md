@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.15**: architecture and restructure agreed; restructure phases 0–5 done, phase 6 under way |
+| Status | **Draft 0.16**: architecture and restructure agreed; restructure phases 0–5 done, phase 6 under way |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -25,6 +25,7 @@
 | 0.13 | 2026-11-22 | Phase 5 under way: `esp32-iot-common` v0.1.0 (public; `wifi_diag`, `stats_util`), devices switched one PR each. §6.1: all devices use the Minimal SPIFFS partition scheme (1.9 MB app slots; no device uses SPIFFS) and the library has no board-specific code (the boards differ); A10 updated |
 | 0.14 | 2026-11-22 | Phase 5 done: door and shed reflashed over USB with the library build and the Minimal SPIFFS layout (door 1,216,012 bytes, 61 %; shed 1,266,784 bytes, 64 %); both reconnected to the broker on TLS 8883 with their settings kept. The garage keeps its current firmware until its next OTA update |
 | 0.15 | 2026-11-22 | Phase 6 step 1 done: plain-text MQTT fallback removed from all three devices (door 4.5.0, shed 1.12.0, garage 2.4.2-m3a; the garage's `MQTT_ALLOW_PLAIN_FALLBACK` option removed), updated over OTA, all on TLS 8883 (O7 done; O11 step 4 done). Known Gaps updated |
+| 0.16 | 2026-11-22 | `tools/add_device.py` (M4, first version) for O11 step 2: runs on the production server, creates a device's MQTT user and prints its `secrets.h` lines for the development machine. The production server and the development machine are separate machines |
 
 ## Contents
 
@@ -380,7 +381,7 @@ These make the platform dependable and keep "add a device" easy.
 | **Contract schemas and checker** (M3) | A JSON Schema for every message type in the contract; a `contract-check` tool that subscribes to the broker and reports messages that do not match; the same schemas used in the services' tests | `iot-platform/contract/` |
 | **Device simulator** (M3) | A Python fake device that speaks the contract (status, states, telemetry, discovery, commands, settings) so services and the control UI can be tested without hardware; builds on `esp32-garage`'s simulated drivers and router-monitor's fake gateway approach | `iot-platform/tools/` |
 | **Platform self-monitoring** (M2) | Each service publishes a heartbeat (`status/platform/<service>`) and its counters; Grafana alerts on a stale service, Mosquitto down, disk above 85 %, database growth. An outside dead-man's switch (Healthchecks, open source, hosted free tier or self-hosted later) alerts when the server itself goes quiet | Services, Grafana rules |
-| **Device onboarding** (M4) | `add-device <hub> <loc>`: creates the MQTT user and password, adds the ACL entries, writes the device's `secrets.h` from the template (outside git), and lists the next steps | `iot-platform/tools/add-device` |
+| **Device onboarding** (M4) | `add_device.py <hub>` on the production server: checks the hub against the ACL plan, creates the MQTT user with a random password, reloads Mosquitto and prints the `secrets.h` lines to copy to the development machine (first version, 2026-11-22; activating ACL entries comes with O11 step 3) | `iot-platform/tools/add_device.py` |
 
 ### Later (wanted, not yet scheduled)
 
@@ -617,5 +618,5 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 | O7 | TLS-only firmware | Done 2026-11-22: plain-text fallback removed from esp32-door (4.5.0), esp32-shed (1.12.0) and esp32-garage (2.4.2-m3a, with its `MQTT_ALLOW_PLAIN_FALLBACK` option); all reconnected on 8883. Open question: remove `MQTT_INSECURE` (TLS without checking the certificate) when the connection code moves into the library |
 | O8 | Separate IoT WiFi network | Check whether the BGW530 can put the ESP32s on a guest/IoT network isolated from laptops and phones |
 | O9 | Network and server monitoring requirements | Which hosts, which measurements, retention, which alerts; then choose the storage ([§13](#13-network-and-server-monitoring-future)) |
-| O11 | Tighten the broker | Each step checked before the next (`mosquitto/README.md`). Done: connection logging (1); plain listener on `127.0.0.1` only (5); TLS-only firmware (4). To do: one user per device and service (2; today all devices use the admin user), then access rules from `mosquitto/acl.example` (3) |
+| O11 | Tighten the broker | Each step checked before the next (`mosquitto/README.md`). Done: connection logging (1); plain listener on `127.0.0.1` only (5); TLS-only firmware (4). To do: one user per device and service (2; `tools/add_device.py` ready; today all devices use the admin user), then access rules from `mosquitto/acl.example` (3) |
 | O10 | Flash/RAM budgets per device | Measure today's builds and set the CI limits. Power classes are deferred (X5) |

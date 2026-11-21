@@ -21,6 +21,7 @@ If code would differ from these documents, stop and ask before changing either. 
 
 ## Environment
 
+- **Two machines:** the **production server** runs Mosquitto, Grafana and the services (server steps run there, from its own `iot-platform` checkout); the **development machine** holds the checkouts used for git, compiling and OTA uploads, and the devices' `secrets.h`. Do not write host names into this public repository.
 - Server: Ubuntu 22.04, system Python 3.10; each service runs in its own venv under `/opt/<service>/` with a systemd unit. Runtime dependency: `paho-mqtt` (standard library otherwise).
 - Dev tools: `pytest`, `ruff` (`requirements-dev.txt`), `shellcheck`.
 
@@ -47,6 +48,7 @@ deploy/install-grafana-shared.sh --root /tmp/gs-test   # test run (needs /tmp/gs
 | `services/README.md` | Installation and operation of both services |
 | `grafana/telemetry/` | Telemetry datasource, IoT dashboards and their generator |
 | `grafana/shared/` | Host-wide Grafana alerting: Slack contact point, template, the one policy tree, webhook drop-in, and `build_shared_alerting.py` (moved from `router-monitor`, history kept) |
+| `tools/add_device.py` | Creates a device's MQTT user on the production server and prints its `secrets.h` lines (`sudo python3 tools/add_device.py <hub>`) |
 | `deploy/install-grafana-shared.sh` | Installs `grafana/shared/` on the server (`--root DIR` for a test run) |
 | `tests/` | Tests for platform-level files (shared alerting, installers) |
 | `mosquitto/` | Broker configuration (byte-identical to the server's) and `acl.example`, the planned access rules (not active); README has the order for tightening the broker |
