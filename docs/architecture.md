@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.13**: architecture and restructure agreed; restructure phases 0–4 done, phase 5 under way |
+| Status | **Draft 0.14**: architecture and restructure agreed; restructure phases 0–5 done |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -23,6 +23,7 @@
 | 0.11 | 2026-11-22 | Phase 4 under way: `esp32-monitor` renamed `esp32-shed` (sketch renamed `esp32-shed.ino`, because the Arduino tools need the folder's name); `garage-control` copied into `esp32-garage/hardware/`; links updated; ESP32 core pinned to 3.3.13 in all three device repos. Still to do: archive `garage-control`, local move of the sketches to `~/src/iot/` |
 | 0.12 | 2026-11-22 | Phase 4 done: `garage-control` archived; the three sketches moved locally to `~/src/iot/` (symlinked into `~/Arduino/`); `esp32-shed` builds from there with the same size as before (1,266,700 bytes, 96 %) |
 | 0.13 | 2026-11-22 | Phase 5 under way: `esp32-iot-common` v0.1.0 (public; `wifi_diag`, `stats_util`), devices switched one PR each. §6.1: all devices use the Minimal SPIFFS partition scheme (1.9 MB app slots; no device uses SPIFFS) and the library has no board-specific code (the boards differ); A10 updated |
+| 0.14 | 2026-11-22 | Phase 5 done: door and shed reflashed over USB with the library build and the Minimal SPIFFS layout (door 1,216,012 bytes, 61 %; shed 1,266,784 bytes, 64 %); both reconnected to the broker on TLS 8883 with their settings kept. The garage keeps its current firmware until its next OTA update |
 
 ## Contents
 
@@ -506,7 +507,7 @@ The aim is **reasonable protection for a home system**: an attacker on the inter
 
 ## 15. Repository Layout
 
-Agreed 2026-11-21. The work is done in phases ([§15.2](#152-restructure-phases)); phases 0–4 are done.
+Agreed 2026-11-21. The work is done in phases ([§15.2](#152-restructure-phases)); phases 0–5 are done.
 
 ### 15.1 Repositories
 
@@ -574,7 +575,7 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 | 2 ✅ | Move the shared Grafana alerting; small installer here; router-monitor drops `--shared-alerting` and updates its design (§5.6, §13), `CLAUDE.md` and tests | iot-platform, router-monitor | Re-install the same files | `/etc/grafana/provisioning/alerting/` unchanged; contact-point test reaches Slack |
 | 3 ✅ | Mosquitto configuration into git from the server's current files, cleaned of secrets, with the ACL plan | iot-platform | None until applied | Broker accepts the configuration |
 | 4 ✅ | `garage-control` → `esp32-garage/hardware/`; archive `garage-control`; rename `esp32-monitor` → `esp32-shed` and update links (including the `esp32-door` and `esp32-garage` links to the old `server/`); locally, move the sketches from `~/Arduino/` to `~/src/iot/` and symlink them back into `~/Arduino/` | esp32-garage, esp32-monitor, all READMEs | None | Links and images render; old URLs redirect |
-| 5 🔄 | Create `esp32-iot-common` with the files that are identical in every device repo (`wifi_diag.*`, `stats_util.h`; `web_wifi.h` differs and stays in the devices); switch devices one at a time, door first. Done: library `v0.1.0` (public), all three devices switched in PRs; all devices on Minimal SPIFFS | new repository, device repositories | Reflash each device | Each device builds and reports as before |
+| 5 ✅ | Create `esp32-iot-common` with the files that are identical in every device repo (`wifi_diag.*`, `stats_util.h`; `web_wifi.h` differs and stays in the devices); switch devices one at a time, door first. Done: library `v0.1.0` (public); all three devices switched; door and shed reflashed over USB with Minimal SPIFFS (door 61 %, shed 64 % of the 1.9 MB slot), garage already on it | new repository, device repositories | Reflash each device | Each device builds and reports as before |
 | 6 | Remove the plain-text MQTT fallback (O7); then move MQTT/TLS, NTP, OTA and status into the library, one device at a time | device repositories, library | Reflash | No plain-text connections in the broker log |
 
 **Decisions for the restructure:**
