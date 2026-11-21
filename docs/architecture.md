@@ -181,7 +181,7 @@ We use the **device-based** variant ("device discovery"): **one retained message
 }
 ```
 
-**Rules from the Home Assistant documentation** (checked 2026-11-21 against the official docs source, `home-assistant/home-assistant.io`, `source/_integrations/mqtt.markdown`, `number.mqtt`, `button.mqtt`, `cover.mqtt`):
+**Rules from the Home Assistant documentation** (checked 2026-11-21 against the published pages [MQTT](https://www.home-assistant.io/integrations/mqtt/), [MQTT Number](https://www.home-assistant.io/integrations/number.mqtt/), [MQTT Button](https://www.home-assistant.io/integrations/button.mqtt/) and [MQTT Cover](https://www.home-assistant.io/integrations/cover.mqtt/), and their source in `home-assistant/home-assistant.io`):
 
 | Rule | Detail |
 |---|---|
