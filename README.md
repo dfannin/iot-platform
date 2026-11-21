@@ -35,7 +35,7 @@ All checked out side by side under `~/src/iot/`:
 | Repository | Role |
 |---|---|
 | [esp32-door](https://github.com/dfannin/esp32-door) | Door sensors |
-| [esp32-monitor](https://github.com/dfannin/esp32-monitor) (to be renamed `esp32-shed`) | Shed power and environment monitor |
+| [esp32-shed](https://github.com/dfannin/esp32-shed) (formerly `esp32-monitor`) | Shed power and environment monitor |
 | [esp32-garage](https://github.com/dfannin/esp32-garage) | Garage door monitor and controller |
-| [garage-control](https://github.com/dfannin/garage-control) (moving into `esp32-garage/hardware/`, then archived) | Garage bus interface hardware |
+| [garage-control](https://github.com/dfannin/garage-control) (archived; now `esp32-garage/hardware/`) | Garage bus interface hardware |
 | [router-monitor](https://github.com/dfannin/router-monitor) | AT&T Internet Air gateway monitor |

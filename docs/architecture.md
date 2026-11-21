@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.10**: architecture and restructure agreed; restructure phases 0–3 done |
+| Status | **Draft 0.11**: architecture and restructure agreed; restructure phases 0–3 done, phase 4 under way |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -20,6 +20,7 @@
 | 0.8 | 2026-11-22 | Phase 2 done: host-wide Grafana alerting moved from router-monitor to `grafana/shared/` with its history, with `build_shared_alerting.py` and `deploy/install-grafana-shared.sh`. Checked on the server: installed files identical to git, installer reported `files changed: 0`, Slack contact-point test works |
 | 0.9 | 2026-11-22 | Phase 3 done: Mosquitto configuration in git (`mosquitto/`), byte-identical to the server's; planned access rules in `mosquitto/acl.example` (not active). Findings added to §12 Known Gaps (no ACL, plain listener on every interface, error-only logging) with the order for fixing them (O11) |
 | 0.10 | 2026-11-22 | Broker tightening: connection logging (step 1) done; the log showed all three devices on TLS 8883 (as the admin user) and only the local services on 1883, so step 5 (plain listener on `127.0.0.1` only) was brought forward. Node-RED retired (A8, O5 done). §12 Known Gaps and O11 updated |
+| 0.11 | 2026-11-22 | Phase 4 under way: `esp32-monitor` renamed `esp32-shed` (sketch renamed `esp32-shed.ino`, because the Arduino tools need the folder's name); `garage-control` copied into `esp32-garage/hardware/`; links updated; ESP32 core pinned to 3.3.13 in all three device repos. Still to do: archive `garage-control`, local move of the sketches to `~/src/iot/` |
 
 ## Contents
 
@@ -568,7 +569,7 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 | 1 ✅ | Move `esp32-monitor/server/` **with its history** (`git filter-repo`); scripts, install paths and tests unchanged; pointer README in the old place | iot-platform, esp32-monitor | None | Tests pass; files installed from the new place are identical to the server's |
 | 2 ✅ | Move the shared Grafana alerting; small installer here; router-monitor drops `--shared-alerting` and updates its design (§5.6, §13), `CLAUDE.md` and tests | iot-platform, router-monitor | Re-install the same files | `/etc/grafana/provisioning/alerting/` unchanged; contact-point test reaches Slack |
 | 3 ✅ | Mosquitto configuration into git from the server's current files, cleaned of secrets, with the ACL plan | iot-platform | None until applied | Broker accepts the configuration |
-| 4 | `garage-control` → `esp32-garage/hardware/`; archive `garage-control`; rename `esp32-monitor` → `esp32-shed` and update links (including the `esp32-door` and `esp32-garage` links to the old `server/`); locally, move the sketches from `~/Arduino/` to `~/src/iot/` and symlink them back into `~/Arduino/` | esp32-garage, esp32-monitor, all READMEs | None | Links and images render; old URLs redirect |
+| 4 🔄 | `garage-control` → `esp32-garage/hardware/`; archive `garage-control`; rename `esp32-monitor` → `esp32-shed` and update links (including the `esp32-door` and `esp32-garage` links to the old `server/`); locally, move the sketches from `~/Arduino/` to `~/src/iot/` and symlink them back into `~/Arduino/` | esp32-garage, esp32-monitor, all READMEs | None | Links and images render; old URLs redirect |
 | 5 | Create `esp32-iot-common` with the files that are identical in every device repo (`wifi_diag.*`, `stats_util.h`, `web_wifi.h`); switch devices one at a time, door first | new repository, device repositories | Reflash each device | Each device builds and reports as before |
 | 6 | Remove the plain-text MQTT fallback (O7); then move MQTT/TLS, NTP, OTA and status into the library, one device at a time | device repositories, library | Reflash | No plain-text connections in the broker log |
 
@@ -607,7 +608,7 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 | O4 | IPv6 test | Does the gateway give the server a public IPv6 address and allow an inbound IPv6 port? If so, plain WireGuard is possible with no third party |
 | O5 | Retire Node-RED | Done 2026-11-21: stopped and no longer used; the broker log shows no other clients |
 | O6 | Control service security | Users and roles, which commands need confirmation, rate limits |
-| O7 | TLS-only firmware | Decided (A9); to do: remove the plain-text MQTT fallback from `esp32-door`, `esp32-monitor` and `esp32-garage` (then in `esp32-iot-common`); plain text only on the broker's `localhost` listener |
+| O7 | TLS-only firmware | Decided (A9); to do: remove the plain-text MQTT fallback from `esp32-door`, `esp32-shed` and `esp32-garage` (then in `esp32-iot-common`); plain text only on the broker's `localhost` listener |
 | O8 | Separate IoT WiFi network | Check whether the BGW530 can put the ESP32s on a guest/IoT network isolated from laptops and phones |
 | O9 | Network and server monitoring requirements | Which hosts, which measurements, retention, which alerts; then choose the storage ([§13](#13-network-and-server-monitoring-future)) |
 | O11 | Tighten the broker | Each step checked before the next (`mosquitto/README.md`). Done: connection logging (1); plain listener on `127.0.0.1` only (5, brought forward: no LAN client used 1883). To do: one user per device and service (2; today all devices use the admin user), access rules from `mosquitto/acl.example` (3), TLS-only firmware (4, O7) |

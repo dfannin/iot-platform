@@ -58,7 +58,7 @@ The hourly power tables also have energy and charge totals, calculated as averag
 Notes:
 - A 5-minute point is stamped at the **end** of its interval (`ts`). It is counted in the hour that contains the **middle** of the interval, so a point at 10:00:03 belongs to 09:00–10:00.
 - In/out totals are calculated from 5-minute averages. If the current changes direction within an interval, only the net amount is counted.
-- The solar `power` uses the battery voltage, because the Keeper 1220 is common-positive (see the [esp32-monitor README](https://github.com/dfannin/esp32-monitor#readme)), so solar energy reads about 35 % low. The battery values are accurate.
+- The solar `power` uses the battery voltage, because the Keeper 1220 is common-positive (see the [esp32-shed README](https://github.com/dfannin/esp32-shed#readme)), so solar energy reads about 35 % low. The battery values are accurate.
 - **The database follows the firmware.** A new numeric field from the firmware becomes a new column automatically, and a new `type` becomes a new table.
 
 ### State History (from `sensor/#`)
