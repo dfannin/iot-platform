@@ -53,6 +53,12 @@ def test_every_listener_refuses_anonymous_clients():
         assert "allow_anonymous false" in conf[start:end], conf[start]
 
 
+def test_connections_are_logged():
+    # Shows which client uses which listener (tightening step 1, mosquitto/README.md).
+    conf = lines(DIR / "conf.d" / "local.conf")
+    assert "log_type notice" in conf and "log_type error" in conf
+
+
 def test_password_file_is_used():
     assert "password_file /etc/mosquitto/passwords" in lines(DIR / "conf.d" / "local.conf")
 
