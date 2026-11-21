@@ -36,24 +36,24 @@ diff /etc/mosquitto/mosquitto.conf mosquitto/mosquitto.conf && diff /etc/mosquit
 |---|---|---|
 | Anonymous access | `allow_anonymous false` on both listeners | — |
 | TLS | Listener 8883 with a self-signed certificate | Expiry not tracked (architecture M11) |
-| Access rules | **None**: every user with a password may publish and subscribe to every topic, including `cmd/#` | Any device or leaked password can command the garage |
+| Access rules | On (step 3): each device publishes only its own topics and reads only its own commands; services read only; only the admin user (and later the control service) may send commands | — |
 | Plain listener 1883 | `127.0.0.1` only (step 5) | — (a device's plain-text fallback now fails instead of connecting unencrypted) |
-| Device users | All three devices log in as the admin user | A device that is taken over has full access; step 2 fixes this |
+| Device users | One user per device (step 2) | — |
 | Logging | `log_type error` and `log_type notice` (step 1) | — |
 
 ## Tightening the Broker (Planned Order)
 
-Each step is a separate change, checked before the next. None is part of the restructure's phase 3. **Done: 1, 4 and 5.** Step 5 was brought forward after the log showed that no LAN client uses 1883.
+Each step is a separate change, checked before the next. None is part of the restructure's phase 3. **Done: all five steps (2026-11-22).** Step 5 was brought forward after the log showed that no LAN client uses 1883.
 
 1. ✅ **Log connections** (in `conf.d/local.conf`). The log shows each client's connection and port, so you can see who still uses 1883. Install and check: see [Step 1 on the Server](#step-1-on-the-server).
-2. **One user per device and service.** For each device, on the **production server** from an `iot-platform` checkout:
+2. ✅ **One user per device and service.** For each device, on the **production server** from an `iot-platform` checkout:
 
    ```bash
    sudo python3 tools/add_device.py backyard00
    ```
 
    It checks the name against `acl.example`, backs up the password file, adds the user with a random password, keeps the file's owner and mode, reloads Mosquitto and prints the `MQTT_USER` / `MQTT_PASSWORD` lines. On the **development machine**, put those lines in the device's `secrets.h` and upload over OTA. Check: the log shows the device connecting as its own user (`u'backyard00'`). `--rotate` sets a new password for an existing user. Repeat for `shed00` and `garage00` (and later `control`); the admin user keeps working throughout.
-3. **Access rules.** Install `acl.example` as `/etc/mosquitto/acl` with the admin user's name, switch on `acl_file` in `conf.d/local.conf` and restart: see [Step 3 on the Server](#step-3-on-the-server).
+3. ✅ **Access rules.** Install `acl.example` as `/etc/mosquitto/acl` with the admin user's name, switch on `acl_file` in `conf.d/local.conf` and restart: see [Step 3 on the Server](#step-3-on-the-server).
 4. ✅ **TLS-only devices.** The plain-text fallback is removed from all three devices (architecture O7; door 4.5.0, shed 1.12.0, garage 2.4.2-m3a), and the log shows all of them on 8883.
 5. ✅ **Plain listener on localhost only:** `listener 1883 127.0.0.1`, for the local services only. Install and check: as step 1 (below), with the backup named `.before-step5`; then confirm both services reconnected (`New client connected from 127.0.0.1 ... as mqtt2slack` and `... as mqtt2sqlite`).
 
