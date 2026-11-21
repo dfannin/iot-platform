@@ -15,6 +15,7 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: ruff check .
       - run: ruff format --check .
+      - run: shellcheck deploy/*.sh
       - run: pytest -v
       - name: Generated dashboards are up to date
         run: |

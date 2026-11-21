@@ -22,7 +22,7 @@ If code would differ from these documents, stop and ask before changing either. 
 ## Environment
 
 - Server: Ubuntu 22.04, system Python 3.10; each service runs in its own venv under `/opt/<service>/` with a systemd unit. Runtime dependency: `paho-mqtt` (standard library otherwise).
-- Dev tools: `pytest`, `ruff` (`requirements-dev.txt`).
+- Dev tools: `pytest`, `ruff` (`requirements-dev.txt`), `shellcheck`.
 
 ## Commands
 
@@ -32,6 +32,9 @@ pip install -r requirements-dev.txt
 pytest                                   # all tests
 ruff check . && ruff format --check .
 python3 grafana/telemetry/build_dashboards.py   # regenerate telemetry dashboards
+python3 grafana/shared/build_shared_alerting.py # regenerate the shared alerting file
+shellcheck deploy/*.sh
+deploy/install-grafana-shared.sh --root /tmp/gs-test   # test run (needs /tmp/gs-test/etc/grafana)
 ```
 
 ## Repository map
@@ -43,7 +46,9 @@ python3 grafana/telemetry/build_dashboards.py   # regenerate telemetry dashboard
 | `services/mqtt2slack/` | MQTT → Slack alerts (moved from `esp32-monitor/server/`; later the alert router) |
 | `services/README.md` | Installation and operation of both services |
 | `grafana/telemetry/` | Telemetry datasource, IoT dashboards and their generator |
-| `grafana/shared/` | Host-wide Grafana alerting (phase 2, from `router-monitor`) |
+| `grafana/shared/` | Host-wide Grafana alerting: Slack contact point, template, the one policy tree, webhook drop-in, and `build_shared_alerting.py` (moved from `router-monitor`, history kept) |
+| `deploy/install-grafana-shared.sh` | Installs `grafana/shared/` on the server (`--root DIR` for a test run) |
+| `tests/` | Tests for platform-level files (shared alerting, installers) |
 | `mosquitto/` | Broker configuration and ACL (phase 3) |
 
 ## Working style
