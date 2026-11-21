@@ -285,7 +285,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now grafana-server
 ```
 
-Open `http://rizz:3000/` (or the server's IP address) and log in as `admin` / `admin`. Grafana asks for a new password. The dashboards are in the **IoT** folder: **Dashboards → IoT**.
+Open `http://<server>:3000/` (the production server's host name or IP address) and log in as `admin` / `admin`. Grafana asks for a new password. The dashboards are in the **IoT** folder: **Dashboards → IoT**.
 
 **Optional: reduce Grafana's background work.** In `/etc/grafana/grafana.ini`, set the following, then restart Grafana:
 
