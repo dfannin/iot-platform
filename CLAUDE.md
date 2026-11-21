@@ -49,7 +49,7 @@ deploy/install-grafana-shared.sh --root /tmp/gs-test   # test run (needs /tmp/gs
 | `grafana/shared/` | Host-wide Grafana alerting: Slack contact point, template, the one policy tree, webhook drop-in, and `build_shared_alerting.py` (moved from `router-monitor`, history kept) |
 | `deploy/install-grafana-shared.sh` | Installs `grafana/shared/` on the server (`--root DIR` for a test run) |
 | `tests/` | Tests for platform-level files (shared alerting, installers) |
-| `mosquitto/` | Broker configuration and ACL (phase 3) |
+| `mosquitto/` | Broker configuration (byte-identical to the server's) and `acl.example`, the planned access rules (not active); README has the order for tightening the broker |
 
 ## Working style
 

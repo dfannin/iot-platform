@@ -1,0 +1,69 @@
+# Mosquitto access control list (ACL): the planned rules (architecture §5, §12).
+#
+# NOT ACTIVE. The broker has no acl_file today, so every user with a password may
+# publish and subscribe to every topic. Turning this on is a later, separate step
+# (mosquitto/README.md, "Tightening the broker"): create the users first, then add
+#   acl_file /etc/mosquitto/acl
+# to conf.d/local.conf and restart Mosquitto. Users not listed here get no access.
+#
+# One user per device and per service. Device users are named after the hub
+# (<location>00); topics use the location. Replace ADMIN_USER with the real admin
+# username on the server (it is a personal name, so it is not in git).
+
+# --- Administrator: debugging with mosquitto_sub / mosquitto_pub -------------------
+user ADMIN_USER
+topic readwrite #
+topic read $SYS/#
+
+# --- Services ---------------------------------------------------------------------
+
+# mqtt2sqlite and mqtt2slack: read only
+user telemetry
+topic read sensor/#
+topic read telemetry/#
+topic read event/#
+topic read config/#
+topic read homeassistant/device/+/config
+
+# Control service (later, with garagebot): the only user that sends commands and
+# settings, and the only one that may remove a device's discovery message.
+user control
+topic read sensor/#
+topic read event/#
+topic read config/#
+topic read homeassistant/device/+/config
+topic write cmd/#
+topic write set/#
+topic write homeassistant/device/+/config
+
+# --- Devices: each publishes only its own topics and reads only its own commands ---
+
+# esp32-door
+user backyard00
+topic write sensor/backyard/#
+topic write telemetry/backyard/#
+topic write event/backyard/#
+topic write config/backyard
+topic write homeassistant/device/backyard00/config
+topic read cmd/backyard/#
+topic read set/backyard/#
+
+# esp32-shed (repository esp32-monitor until it is renamed)
+user shed00
+topic write sensor/shed/#
+topic write telemetry/shed/#
+topic write event/shed/#
+topic write config/shed
+topic write homeassistant/device/shed00/config
+topic read cmd/shed/#
+topic read set/shed/#
+
+# esp32-garage
+user garage00
+topic write sensor/garage/#
+topic write telemetry/garage/#
+topic write event/garage/#
+topic write config/garage
+topic write homeassistant/device/garage00/config
+topic read cmd/garage/#
+topic read set/garage/#

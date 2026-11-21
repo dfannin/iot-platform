@@ -15,7 +15,7 @@ The shared server side for my home IoT projects: the ESP32 devices (shed, doors,
 
 | Path | Contents | Comes from |
 |---|---|---|
-| `mosquitto/` | Broker configuration and ACL | Not yet in git |
+| `mosquitto/` | Broker configuration and planned ACL | The server's `/etc/mosquitto/` (phase 3) |
 | `docs/mqtt-contract.md` | Topics and payloads every device follows | New |
 | `contract/` | JSON Schemas for every message type, `contract-check` | New |
 | `tools/` | `add-device` onboarding, device simulator | New |

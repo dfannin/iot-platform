@@ -5,6 +5,7 @@ secrets*.toml
 *.env
 .env*
 passwd
+passwords
 *.passwd
 *.key
 *.pem
