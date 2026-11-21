@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.4**: architecture agreed; the repository restructure is the next step |
+| Status | **Draft 0.5**: architecture agreed; the repository restructure is the next step |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -14,6 +14,7 @@
 | 0.2 | 2026-11-21 | Security goal G7 and new §11 Security (threat model and protections per layer; decision A9; open items O7, O8). Constraint reworded: the code is small and testable (not teaching material). §12 states exactly what stays in `router-monitor` (collector, database, its dashboards and rules) and what moves here (host-wide Grafana alerting only). Sections 11–13 renumbered to 12–14 |
 | 0.3 | 2026-11-21 | Goals G8 (memory-limited, low-power firmware) and G9 (future network and server monitoring); constraints for ESP32 memory and power; §6.1 compile-time feature selection with CI budgets, §6.2 power classes; §9 device registry fields, including the device page URL; plain-text MQTT fallback removed by decision (A9, O7); new §12 Network and Server Monitoring (preliminary); decisions A10, A11; open items O9, O10. Sections 12–14 renumbered to 13–15 |
 | 0.4 | 2026-11-21 | Outcome of the [architecture review](architecture-review.md): self-description uses Home Assistant device-based discovery instead of our own `meta/` (§5.1, X2); fleet OTA (§6.3, M1); not ESPHome (X4); sleepy devices deferred (X5); two alert paths kept because Grafana's 1–2 min delay is too long (X3), silences and inhibition later (M5, M6); control UI in three phases (X1); new sections Testing and Operations (M2–M4 now; M9–M11 later) and Roadmap; decisions A12–A14. Sections renumbered |
+| 0.5 | 2026-11-21 | §5.1 checked against the Home Assistant documentation source: `uniq_id` added to each component (required), availability mapped to the existing `sensor/<loc>/status` last will, cover state template lower-cased to match the defaults, table of the documented rules (topic, required keys, abbreviations, extra keys ignored, retained vs birth message, removal); O2 updated |
 
 ## Contents
 
@@ -158,33 +159,52 @@ The contract is what makes a new device cheap: **a device that follows it gets s
 
 Instead of designing our own self-description schema, devices use **Home Assistant's MQTT discovery format** (review item X2). It is already specified and documented, it can point at *our existing topics* (no topic changes), and Home Assistant, openHAB and other tools understand it. We use it as a format only; Home Assistant itself is not part of the platform.
 
-We use the **device-based** variant: **one retained message per device**, with abbreviated keys, rather than one message per sensor. A shortened example for the garage:
+We use the **device-based** variant ("device discovery"): **one retained message per device** on `homeassistant/device/<hub>/config`, with abbreviated keys, rather than one message per sensor. A shortened example for the garage:
 
 ```json
 {
   "dev":  {"ids": "garage00", "name": "Garage", "mdl": "ESP32-DevKitC-V4",
            "sw": "2.3.0", "cu": "http://192.168.1.42/"},
   "o":    {"name": "esp32-iot-common", "sw": "1.0.0"},
+  "avty_t": "sensor/garage/status", "pl_avail": "ONLINE", "pl_not_avail": "OFFLINE",
   "cmps": {
-    "left":         {"p": "cover",  "stat_t": "sensor/garage/left", "cmd_t": "cmd/garage/left",
-                     "val_tpl": "{{ value_json.state }}"},
-    "close_warn_s": {"p": "number", "stat_t": "config/garage", "cmd_t": "set/garage/close_warn_s",
-                     "val_tpl": "{{ value_json.close_warn_s }}", "min": 0, "max": 120, "unit_of_meas": "s"},
-    "reboot":       {"p": "button", "cmd_t": "cmd/garage/device", "pl_prs": "REBOOT"}
+    "left":         {"p": "cover", "uniq_id": "garage00_left",
+                     "stat_t": "sensor/garage/left", "cmd_t": "cmd/garage/left",
+                     "val_tpl": "{{ value_json.opener | lower }}"},
+    "close_warn_s": {"p": "number", "uniq_id": "garage00_close_warn_s",
+                     "stat_t": "config/garage", "cmd_t": "set/garage/close_warn_s",
+                     "val_tpl": "{{ value_json.close_warn_s }}",
+                     "min": 0, "max": 120, "step": 1, "unit_of_meas": "s"},
+    "reboot":       {"p": "button", "uniq_id": "garage00_reboot",
+                     "cmd_t": "cmd/garage/device", "pl_prs": "REBOOT"}
   }
 }
 ```
 
+**Rules from the Home Assistant documentation** (checked 2026-11-21 against the official docs source, `home-assistant/home-assistant.io`, `source/_integrations/mqtt.markdown`, `number.mqtt`, `button.mqtt`, `cover.mqtt`):
+
+| Rule | Detail |
+|---|---|
+| Topic | `<discovery_prefix>/device/<object_id>/config`; prefix `homeassistant`; `<object_id>` from `[a-zA-Z0-9_-]` → we use the hub name |
+| Required at the root | `dev` (device) and `o` (origin, with at least `name`); components in `cmps` |
+| Required per component | `p` (platform) and, for entities, `uniq_id`; component keys unique within the device |
+| Our own topics | Every `*_topic` can be any topic, so `stat_t`/`cmd_t` point at the existing `sensor/`, `cmd/`, `config/`, `set/` topics. A base topic `~` can shorten repeated prefixes |
+| Abbreviations | Allowed everywhere "to conserve memory … from memory constrained devices" (`stat_t`, `cmd_t`, `val_tpl`, `uniq_id`, `unit_of_meas`, `pl_prs`, `avty_t`, `cu`, `sw`, `mdl`, `ids`, …) |
+| Extra keys | "unknown configuration keys are allowed but ignored", so a field of our own can be added if ever needed |
+| Availability | Shared `avty_t` / `pl_avail` / `pl_not_avail` at the root: points at our existing `sensor/<loc>/status` with `ONLINE` / `OFFLINE` |
+| Retained | Allowed; the docs prefer re-sending when Home Assistant publishes `online` on `homeassistant/status`. Not needed while Home Assistant is not used; the library may subscribe to it later |
+| Remove a device | Empty retained payload on the discovery topic. One component: send it with only `p`, then send the payload without it |
+
 | Need | Discovery feature |
 |---|---|
-| Device page URL for the registry | `configuration_url` (`cu`) in the device block |
+| Device page URL for the registry | `configuration_url` (`cu`): `http://` or `https://` |
 | Firmware version | `sw_version` (`sw`) |
-| Settings with type and range | `number` (min, max, step, unit), `switch`, `select` |
-| Commands | `button`, `cover` (garage: OPEN/CLOSE/STOP are its defaults) |
+| Settings with type and range | `number` (`min` default 1, `max` default 100, `step` default 1, unit, mode), `switch`, `select` |
+| Commands | `button` (`pl_prs`, default `PRESS`), `cover` (`pl_open`/`pl_cls`/`pl_stop` default `OPEN`/`CLOSE`/`STOP`, the garage's own commands) |
+| Door state | `cover` states default to lower case (`open`, `closed`, `opening`, `closing`, `stopped`), so the template lower-cases the garage's `opener` field |
 | Readings and states | `sensor`, `binary_sensor` |
-| Remove a device | Empty retained message on its discovery topic |
 
-**Check against our needs:** the format is not verbose for one device (about 1–2 KB with abbreviations). On the ESP32 the message is written in pieces (`beginPublish` / `write` / `endPublish`) so no large buffer is needed, and it can be switched off with `IOT_FEATURE_DISCOVERY`. Fields we need that the format does not have (none so far) stay out of the discovery message. **If the format turns out not to fit, we fall back to a small `meta/<loc>` message of our own.** The details are to be checked against the current Home Assistant documentation before the contract is written (O2).
+**Check against our needs:** the format meets them and is not verbose for one device (about 1–2 KB with abbreviations). On the ESP32 the message is written in pieces (`beginPublish` / `write` / `endPublish`) so no large buffer is needed, and it can be switched off with `IOT_FEATURE_DISCOVERY`. **If the format ever stops fitting, we fall back to a small `meta/<loc>` message of our own.**
 
 ## 6. Shared Firmware Library
 
@@ -533,7 +553,7 @@ The router's dashboards and rules stay with the router because they depend on it
 | # | Item | Notes |
 |---|---|---|
 | O1 | Repository restructure | Next discussion: what moves where, in what order, without breaking the running services |
-| O2 | MQTT contract details | Check the discovery details against the current Home Assistant documentation (device-based topic, abbreviations, `configuration_url`, how extra keys are handled; it could not be fetched from this session); `sensor/<loc>/status` kept or renamed; payload versioning |
+| O2 | MQTT contract details | Discovery format checked against the Home Assistant docs (done, §5.1). Still open: `sensor/<loc>/status` kept or renamed; payload versioning; the `cmd/<loc>/device` payloads (REBOOT, OTA) |
 | O3 | router-monitor events on MQTT | Optional; would add `paho-mqtt` to router-monitor, which is a design change there (its runtime dependency is `requests` only) |
 | O4 | IPv6 test | Does the gateway give the server a public IPv6 address and allow an inbound IPv6 port? If so, plain WireGuard is possible with no third party |
 | O5 | Retire Node-RED | Confirm nothing still depends on it |
