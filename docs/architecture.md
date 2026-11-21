@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.7**: architecture and restructure agreed; restructure phases 0–1 done |
+| Status | **Draft 0.8**: architecture and restructure agreed; restructure phases 0–2 done |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -17,6 +17,7 @@
 | 0.5 | 2026-11-21 | §5.1 checked against the Home Assistant documentation source: `uniq_id` added to each component (required), availability mapped to the existing `sensor/<loc>/status` last will, cover state template lower-cased to match the defaults, table of the documented rules (topic, required keys, abbreviations, extra keys ignored, retained vs birth message, removal); O2 updated |
 | 0.6 | 2026-11-21 | Repository restructure agreed (§15): layout of this repository, phases 0–6, history kept for moved code, Python services moved as they are, shared library through the Arduino libraries folder and tags, `esp32-monitor` renamed `esp32-shed`, `garage-control` archived |
 | 0.7 | 2026-11-21 | Phases 0 and 1 done: scaffold (CLAUDE.md, CI) and `esp32-monitor/server/` moved here with its history (byte-identical files, 70 tests pass, dashboards regenerate identically). Phase 4 also moves the sketches locally from `~/Arduino/` to `~/src/iot/`, symlinked back into `~/Arduino/` |
+| 0.8 | 2026-11-22 | Phase 2 done: host-wide Grafana alerting moved from router-monitor to `grafana/shared/` with its history, with `build_shared_alerting.py` and `deploy/install-grafana-shared.sh`. Checked on the server: installed files identical to git, installer reported `files changed: 0`, Slack contact-point test works |
 
 ## Contents
 
@@ -497,7 +498,7 @@ The aim is **reasonable protection for a home system**: an attacker on the inter
 
 ## 15. Repository Layout
 
-Agreed 2026-11-21. The work is done in phases ([§15.2](#152-restructure-phases)); phases 0 and 1 are done.
+Agreed 2026-11-21. The work is done in phases ([§15.2](#152-restructure-phases)); phases 0, 1 and 2 are done.
 
 ### 15.1 Repositories
 
@@ -562,7 +563,7 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 |---|---|---|---|---|
 | 0 ✅ | Scaffold: `CLAUDE.md`, `.gitignore` for secrets, CI with `pytest` and `ruff` | iot-platform | None | CI passes |
 | 1 ✅ | Move `esp32-monitor/server/` **with its history** (`git filter-repo`); scripts, install paths and tests unchanged; pointer README in the old place | iot-platform, esp32-monitor | None | Tests pass; files installed from the new place are identical to the server's |
-| 2 | Move the shared Grafana alerting; small installer here; router-monitor drops `--shared-alerting` and updates its design (§5.6, §13), `CLAUDE.md` and tests | iot-platform, router-monitor | Re-install the same files | `/etc/grafana/provisioning/alerting/` unchanged; contact-point test reaches Slack |
+| 2 ✅ | Move the shared Grafana alerting; small installer here; router-monitor drops `--shared-alerting` and updates its design (§5.6, §13), `CLAUDE.md` and tests | iot-platform, router-monitor | Re-install the same files | `/etc/grafana/provisioning/alerting/` unchanged; contact-point test reaches Slack |
 | 3 | Mosquitto configuration into git from the server's current files, cleaned of secrets, with the ACL plan | iot-platform | None until applied | Broker accepts the configuration |
 | 4 | `garage-control` → `esp32-garage/hardware/`; archive `garage-control`; rename `esp32-monitor` → `esp32-shed` and update links (including the `esp32-door` and `esp32-garage` links to the old `server/`); locally, move the sketches from `~/Arduino/` to `~/src/iot/` and symlink them back into `~/Arduino/` | esp32-garage, esp32-monitor, all READMEs | None | Links and images render; old URLs redirect |
 | 5 | Create `esp32-iot-common` with the files that are identical in every device repo (`wifi_diag.*`, `stats_util.h`, `web_wifi.h`); switch devices one at a time, door first | new repository, device repositories | Reflash each device | Each device builds and reports as before |
