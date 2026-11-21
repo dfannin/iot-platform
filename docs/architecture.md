@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.11**: architecture and restructure agreed; restructure phases 0–3 done, phase 4 under way |
+| Status | **Draft 0.12**: architecture and restructure agreed; restructure phases 0–4 done |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -21,6 +21,7 @@
 | 0.9 | 2026-11-22 | Phase 3 done: Mosquitto configuration in git (`mosquitto/`), byte-identical to the server's; planned access rules in `mosquitto/acl.example` (not active). Findings added to §12 Known Gaps (no ACL, plain listener on every interface, error-only logging) with the order for fixing them (O11) |
 | 0.10 | 2026-11-22 | Broker tightening: connection logging (step 1) done; the log showed all three devices on TLS 8883 (as the admin user) and only the local services on 1883, so step 5 (plain listener on `127.0.0.1` only) was brought forward. Node-RED retired (A8, O5 done). §12 Known Gaps and O11 updated |
 | 0.11 | 2026-11-22 | Phase 4 under way: `esp32-monitor` renamed `esp32-shed` (sketch renamed `esp32-shed.ino`, because the Arduino tools need the folder's name); `garage-control` copied into `esp32-garage/hardware/`; links updated; ESP32 core pinned to 3.3.13 in all three device repos. Still to do: archive `garage-control`, local move of the sketches to `~/src/iot/` |
+| 0.12 | 2026-11-22 | Phase 4 done: `garage-control` archived; the three sketches moved locally to `~/src/iot/` (symlinked into `~/Arduino/`); `esp32-shed` builds from there with the same size as before (1,266,700 bytes, 96 %) |
 
 ## Contents
 
@@ -502,7 +503,7 @@ The aim is **reasonable protection for a home system**: an attacker on the inter
 
 ## 15. Repository Layout
 
-Agreed 2026-11-21. The work is done in phases ([§15.2](#152-restructure-phases)); phases 0–3 are done.
+Agreed 2026-11-21. The work is done in phases ([§15.2](#152-restructure-phases)); phases 0–4 are done.
 
 ### 15.1 Repositories
 
@@ -569,7 +570,7 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 | 1 ✅ | Move `esp32-monitor/server/` **with its history** (`git filter-repo`); scripts, install paths and tests unchanged; pointer README in the old place | iot-platform, esp32-monitor | None | Tests pass; files installed from the new place are identical to the server's |
 | 2 ✅ | Move the shared Grafana alerting; small installer here; router-monitor drops `--shared-alerting` and updates its design (§5.6, §13), `CLAUDE.md` and tests | iot-platform, router-monitor | Re-install the same files | `/etc/grafana/provisioning/alerting/` unchanged; contact-point test reaches Slack |
 | 3 ✅ | Mosquitto configuration into git from the server's current files, cleaned of secrets, with the ACL plan | iot-platform | None until applied | Broker accepts the configuration |
-| 4 🔄 | `garage-control` → `esp32-garage/hardware/`; archive `garage-control`; rename `esp32-monitor` → `esp32-shed` and update links (including the `esp32-door` and `esp32-garage` links to the old `server/`); locally, move the sketches from `~/Arduino/` to `~/src/iot/` and symlink them back into `~/Arduino/` | esp32-garage, esp32-monitor, all READMEs | None | Links and images render; old URLs redirect |
+| 4 ✅ | `garage-control` → `esp32-garage/hardware/`; archive `garage-control`; rename `esp32-monitor` → `esp32-shed` and update links (including the `esp32-door` and `esp32-garage` links to the old `server/`); locally, move the sketches from `~/Arduino/` to `~/src/iot/` and symlink them back into `~/Arduino/` | esp32-garage, esp32-monitor, all READMEs | None | Links and images render; old URLs redirect |
 | 5 | Create `esp32-iot-common` with the files that are identical in every device repo (`wifi_diag.*`, `stats_util.h`, `web_wifi.h`); switch devices one at a time, door first | new repository, device repositories | Reflash each device | Each device builds and reports as before |
 | 6 | Remove the plain-text MQTT fallback (O7); then move MQTT/TLS, NTP, OTA and status into the library, one device at a time | device repositories, library | Reflash | No plain-text connections in the broker log |
 
