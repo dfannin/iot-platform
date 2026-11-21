@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.6**: architecture and repository restructure agreed |
+| Status | **Draft 0.7**: architecture and restructure agreed; restructure phases 0–1 done |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -16,6 +16,7 @@
 | 0.4 | 2026-11-21 | Outcome of the [architecture review](architecture-review.md): self-description uses Home Assistant device-based discovery instead of our own `meta/` (§5.1, X2); fleet OTA (§6.3, M1); not ESPHome (X4); sleepy devices deferred (X5); two alert paths kept because Grafana's 1–2 min delay is too long (X3), silences and inhibition later (M5, M6); control UI in three phases (X1); new sections Testing and Operations (M2–M4 now; M9–M11 later) and Roadmap; decisions A12–A14. Sections renumbered |
 | 0.5 | 2026-11-21 | §5.1 checked against the Home Assistant documentation source: `uniq_id` added to each component (required), availability mapped to the existing `sensor/<loc>/status` last will, cover state template lower-cased to match the defaults, table of the documented rules (topic, required keys, abbreviations, extra keys ignored, retained vs birth message, removal); O2 updated |
 | 0.6 | 2026-11-21 | Repository restructure agreed (§15): layout of this repository, phases 0–6, history kept for moved code, Python services moved as they are, shared library through the Arduino libraries folder and tags, `esp32-monitor` renamed `esp32-shed`, `garage-control` archived |
+| 0.7 | 2026-11-21 | Phases 0 and 1 done: scaffold (CLAUDE.md, CI) and `esp32-monitor/server/` moved here with its history (byte-identical files, 70 tests pass, dashboards regenerate identically). Phase 4 also moves the sketches locally from `~/Arduino/` to `~/src/iot/`, symlinked back into `~/Arduino/` |
 
 ## Contents
 
@@ -496,7 +497,7 @@ The aim is **reasonable protection for a home system**: an attacker on the inter
 
 ## 15. Repository Layout
 
-Agreed 2026-11-21. The work is done in phases ([§15.2](#152-restructure-phases)); nothing has moved yet.
+Agreed 2026-11-21. The work is done in phases ([§15.2](#152-restructure-phases)); phases 0 and 1 are done.
 
 ### 15.1 Repositories
 
@@ -559,11 +560,11 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 
 | Phase | Change | Repositories | Server impact | Check |
 |---|---|---|---|---|
-| 0 | Scaffold: `CLAUDE.md`, `.gitignore` for secrets, CI with `pytest` and `ruff` | iot-platform | None | CI passes |
-| 1 | Move `esp32-monitor/server/` **with its history** (`git filter-repo`); scripts, install paths and tests unchanged; pointer README in the old place | iot-platform, esp32-monitor | None | Tests pass; files installed from the new place are identical to the server's |
+| 0 ✅ | Scaffold: `CLAUDE.md`, `.gitignore` for secrets, CI with `pytest` and `ruff` | iot-platform | None | CI passes |
+| 1 ✅ | Move `esp32-monitor/server/` **with its history** (`git filter-repo`); scripts, install paths and tests unchanged; pointer README in the old place | iot-platform, esp32-monitor | None | Tests pass; files installed from the new place are identical to the server's |
 | 2 | Move the shared Grafana alerting; small installer here; router-monitor drops `--shared-alerting` and updates its design (§5.6, §13), `CLAUDE.md` and tests | iot-platform, router-monitor | Re-install the same files | `/etc/grafana/provisioning/alerting/` unchanged; contact-point test reaches Slack |
 | 3 | Mosquitto configuration into git from the server's current files, cleaned of secrets, with the ACL plan | iot-platform | None until applied | Broker accepts the configuration |
-| 4 | `garage-control` → `esp32-garage/hardware/`; archive `garage-control`; rename `esp32-monitor` → `esp32-shed` and update links | esp32-garage, esp32-monitor, all READMEs | None | Links and images render; old URLs redirect |
+| 4 | `garage-control` → `esp32-garage/hardware/`; archive `garage-control`; rename `esp32-monitor` → `esp32-shed` and update links (including the `esp32-door` and `esp32-garage` links to the old `server/`); locally, move the sketches from `~/Arduino/` to `~/src/iot/` and symlink them back into `~/Arduino/` | esp32-garage, esp32-monitor, all READMEs | None | Links and images render; old URLs redirect |
 | 5 | Create `esp32-iot-common` with the files that are identical in every device repo (`wifi_diag.*`, `stats_util.h`, `web_wifi.h`); switch devices one at a time, door first | new repository, device repositories | Reflash each device | Each device builds and reports as before |
 | 6 | Remove the plain-text MQTT fallback (O7); then move MQTT/TLS, NTP, OTA and status into the library, one device at a time | device repositories, library | Reflash | No plain-text connections in the broker log |
 
