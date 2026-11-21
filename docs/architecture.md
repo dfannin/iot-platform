@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.12**: architecture and restructure agreed; restructure phases 0–4 done, phase 5 under way |
+| Status | **Draft 0.13**: architecture and restructure agreed; restructure phases 0–4 done, phase 5 under way |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
