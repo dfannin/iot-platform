@@ -2,9 +2,9 @@
 """
 Build the Grafana dashboards (JSON) for the IoT folder.
 
-    python3 server/grafana/build_dashboards.py
+    python3 grafana/telemetry/build_dashboards.py
 
-writes into server/grafana/dashboards/:
+writes into grafana/telemetry/dashboards/:
 
     iot-device-health.json   IoT Device Health   every node: status, last seen, RSSI, uptime, memory, boots
     doors.json               Door and Gate Status every door/gate node (OPEN/CLOSED states)
@@ -12,7 +12,7 @@ writes into server/grafana/dashboards/:
 
 All queries use the SQLite data source (frser-sqlite-datasource, uid telemetry-sqlite)
 and the tables written by mqtt2sqlite.py. Edit this script, not the JSON files, then
-rebuild and install the JSON files (see server/README.md).
+rebuild and install the JSON files (see services/README.md).
 """
 
 import json

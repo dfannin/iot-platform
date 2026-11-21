@@ -1,6 +1,6 @@
 # Server: Slack Alerts and Time Series
 
-This directory holds the server side of the shed monitor. It has two independent Python services:
+These are the platform's MQTT services (moved from `esp32-monitor/server/` with their history; see [architecture §15](../docs/architecture.md#15-repository-layout)). Run the commands below from the root of the `iot-platform` checkout. There are two independent Python services:
 
 | Service | Reads | Does |
 |---------|-------|------|
@@ -58,7 +58,7 @@ The hourly power tables also have energy and charge totals, calculated as averag
 Notes:
 - A 5-minute point is stamped at the **end** of its interval (`ts`). It is counted in the hour that contains the **middle** of the interval, so a point at 10:00:03 belongs to 09:00–10:00.
 - In/out totals are calculated from 5-minute averages. If the current changes direction within an interval, only the net amount is counted.
-- The solar `power` uses the battery voltage, because the Keeper 1220 is common-positive (see the main README), so solar energy reads about 35 % low. The battery values are accurate.
+- The solar `power` uses the battery voltage, because the Keeper 1220 is common-positive (see the [esp32-monitor README](https://github.com/dfannin/esp32-monitor#readme)), so solar energy reads about 35 % low. The battery values are accurate.
 - **The database follows the firmware.** A new numeric field from the firmware becomes a new column automatically, and a new `type` becomes a new table.
 
 ### State History (from `sensor/#`)
@@ -76,19 +76,19 @@ Only changes are stored: the last state of each topic is kept in `last_state`, s
 
 | File | Install to |
 |------|------------|
-| `mqtt2sqlite.py` | `/opt/mqtt2sqlite/mqtt2sqlite.py` |
-| `requirements.txt` | Used to create `/opt/mqtt2sqlite/venv` |
-| `mqtt2sqlite.ini.example` | `/etc/mqtt2sqlite/mqtt2sqlite.ini` |
-| `systemd/mqtt2sqlite.service` | `/etc/systemd/system/mqtt2sqlite.service` |
-| `grafana/provisioning/datasources/telemetry.yaml` | `/etc/grafana/provisioning/datasources/` |
-| `grafana/provisioning/dashboards/telemetry.yaml` | `/etc/grafana/provisioning/dashboards/` |
-| `grafana/dashboards/*.json` (3 dashboards) | `/etc/grafana/dashboards/telemetry/` |
-| `grafana/build_dashboards.py` | Not installed. Builds the dashboard JSON files: edit it, then run `python3 server/grafana/build_dashboards.py`. |
-| `grafana/systemd/telemetry.conf` | `/etc/systemd/system/grafana-server.service.d/` |
-| `mqtt2slack.py` | `/opt/mqtt2slack/mqtt2slack.py` |
-| `mqtt2slack.ini.example` | `/etc/mqtt2slack/mqtt2slack.ini` |
-| `systemd/mqtt2slack.service` | `/etc/systemd/system/mqtt2slack.service` |
-| `tests/` | Not installed. Run the tests from the repository: `cd server && python3 -m unittest discover -s tests -v` |
+| `services/mqtt2sqlite/mqtt2sqlite.py` | `/opt/mqtt2sqlite/mqtt2sqlite.py` |
+| `services/requirements.txt` | Used to create `/opt/mqtt2sqlite/venv` |
+| `services/mqtt2sqlite/mqtt2sqlite.ini.example` | `/etc/mqtt2sqlite/mqtt2sqlite.ini` |
+| `services/mqtt2sqlite/systemd/mqtt2sqlite.service` | `/etc/systemd/system/mqtt2sqlite.service` |
+| `grafana/telemetry/provisioning/datasources/telemetry.yaml` | `/etc/grafana/provisioning/datasources/` |
+| `grafana/telemetry/provisioning/dashboards/telemetry.yaml` | `/etc/grafana/provisioning/dashboards/` |
+| `grafana/telemetry/dashboards/*.json` (3 dashboards) | `/etc/grafana/dashboards/telemetry/` |
+| `grafana/telemetry/build_dashboards.py` | Not installed. Builds the dashboard JSON files: edit it, then run `python3 grafana/telemetry/build_dashboards.py`. |
+| `grafana/telemetry/systemd/telemetry.conf` | `/etc/systemd/system/grafana-server.service.d/` |
+| `services/mqtt2slack/mqtt2slack.py` | `/opt/mqtt2slack/mqtt2slack.py` |
+| `services/mqtt2slack/mqtt2slack.ini.example` | `/etc/mqtt2slack/mqtt2slack.ini` |
+| `services/mqtt2slack/systemd/mqtt2slack.service` | `/etc/systemd/system/mqtt2slack.service` |
+| `services/*/tests/` | Not installed. Run the tests from the repository: `python3 -m unittest discover -s services/mqtt2sqlite/tests -v` and the same for `services/mqtt2slack/tests` (or `pytest` from the repository root) |
 
 ## Installation (Ubuntu 22.04)
 
@@ -145,7 +145,7 @@ sudo install -d /opt/mqtt2sqlite
 ```
 
 ```bash
-sudo install -m 644 server/mqtt2sqlite.py /opt/mqtt2sqlite/
+sudo install -m 644 services/mqtt2sqlite/mqtt2sqlite.py /opt/mqtt2sqlite/
 ```
 
 ```bash
@@ -153,13 +153,14 @@ sudo python3 -m venv /opt/mqtt2sqlite/venv
 ```
 
 ```bash
-sudo /opt/mqtt2sqlite/venv/bin/pip install -r server/requirements.txt
+sudo /opt/mqtt2sqlite/venv/bin/pip install -r services/requirements.txt
 ```
 
 Optionally, run the tests. They need no broker and no extra packages:
 
 ```bash
-cd server && python3 -m unittest discover -s tests -v; cd ..
+python3 -m unittest discover -s services/mqtt2sqlite/tests -v
+python3 -m unittest discover -s services/mqtt2slack/tests -v
 ```
 
 ### 5. Configuration
@@ -169,7 +170,7 @@ sudo install -d /etc/mqtt2sqlite
 ```
 
 ```bash
-sudo install -m 640 -g telemetry server/mqtt2sqlite.ini.example /etc/mqtt2sqlite/mqtt2sqlite.ini
+sudo install -m 640 -g telemetry services/mqtt2sqlite/mqtt2sqlite.ini.example /etc/mqtt2sqlite/mqtt2sqlite.ini
 ```
 
 ```bash
@@ -181,7 +182,7 @@ Set `username` and `password` to the MQTT user from step 2. If Mosquitto allows 
 ### 6. Start the Service
 
 ```bash
-sudo install -m 644 server/systemd/mqtt2sqlite.service /etc/systemd/system/
+sudo install -m 644 services/mqtt2sqlite/systemd/mqtt2sqlite.service /etc/systemd/system/
 ```
 
 ```bash
@@ -257,21 +258,21 @@ sudo grafana cli --homepath /usr/share/grafana --config /etc/grafana/grafana.ini
 Let Grafana read the database. This is a systemd drop-in that adds the `telemetry` group and write access to the database directory, which SQLite needs for its `-shm` file:
 
 ```bash
-sudo install -D -m 644 server/grafana/systemd/telemetry.conf /etc/systemd/system/grafana-server.service.d/telemetry.conf
+sudo install -D -m 644 grafana/telemetry/systemd/telemetry.conf /etc/systemd/system/grafana-server.service.d/telemetry.conf
 ```
 
 Install the data source and the dashboard:
 
 ```bash
-sudo install -m 644 server/grafana/provisioning/datasources/telemetry.yaml /etc/grafana/provisioning/datasources/
+sudo install -m 644 grafana/telemetry/provisioning/datasources/telemetry.yaml /etc/grafana/provisioning/datasources/
 ```
 
 ```bash
-sudo install -m 644 server/grafana/provisioning/dashboards/telemetry.yaml /etc/grafana/provisioning/dashboards/
+sudo install -m 644 grafana/telemetry/provisioning/dashboards/telemetry.yaml /etc/grafana/provisioning/dashboards/
 ```
 
 ```bash
-sudo install -d /etc/grafana/dashboards/telemetry && sudo install -m 644 server/grafana/dashboards/*.json /etc/grafana/dashboards/telemetry/
+sudo install -d /etc/grafana/dashboards/telemetry && sudo install -m 644 grafana/telemetry/dashboards/*.json /etc/grafana/dashboards/telemetry/
 ```
 
 Start Grafana:
@@ -347,7 +348,7 @@ Variables at the top: **Resolution** (`5m` or `1h`; use `1h` for ranges longer t
 
 ### Changing the Dashboards
 
-The dashboards are built by `grafana/build_dashboards.py`. To change one, edit the script, run `python3 server/grafana/build_dashboards.py`, commit, and install the JSON files again. Changes saved in Grafana work, but are replaced the next time the JSON files are installed.
+The dashboards are built by `grafana/telemetry/build_dashboards.py`. To change one, edit the script, run `python3 grafana/telemetry/build_dashboards.py`, commit, and install the JSON files again. Changes saved in Grafana work, but are replaced the next time the JSON files are installed.
 
 ## Alert Service (mqtt2slack)
 
@@ -402,7 +403,7 @@ sudo install -d /opt/mqtt2slack
 ```
 
 ```bash
-sudo install -m 644 server/mqtt2slack.py /opt/mqtt2slack/
+sudo install -m 644 services/mqtt2slack/mqtt2slack.py /opt/mqtt2slack/
 ```
 
 ```bash
@@ -410,7 +411,7 @@ sudo python3 -m venv /opt/mqtt2slack/venv
 ```
 
 ```bash
-sudo /opt/mqtt2slack/venv/bin/pip install -r server/requirements.txt
+sudo /opt/mqtt2slack/venv/bin/pip install -r services/requirements.txt
 ```
 
 ```bash
@@ -418,7 +419,7 @@ sudo install -d /etc/mqtt2slack
 ```
 
 ```bash
-sudo install -m 640 -g telemetry server/mqtt2slack.ini.example /etc/mqtt2slack/mqtt2slack.ini
+sudo install -m 640 -g telemetry services/mqtt2slack/mqtt2slack.ini.example /etc/mqtt2slack/mqtt2slack.ini
 ```
 
 ```bash
@@ -441,7 +442,7 @@ sudo -u telemetry /opt/mqtt2slack/venv/bin/python /opt/mqtt2slack/mqtt2slack.py 
 Start the service:
 
 ```bash
-sudo install -m 644 server/systemd/mqtt2slack.service /etc/systemd/system/
+sudo install -m 644 services/mqtt2slack/systemd/mqtt2slack.service /etc/systemd/system/
 ```
 
 ```bash
@@ -497,7 +498,7 @@ After a few weeks without problems, Node-RED can be removed. If you installed it
 | Forget all devices (after removing one) | `sudo systemctl stop mqtt2slack`, then run the program with `--reset-watchdog` as above, then `sudo systemctl start mqtt2slack` |
 | See waiting alerts | `sqlite3 /var/lib/telemetry/mqtt2slack-state.db "SELECT id, datetime(created, 'unixepoch', 'localtime'), substr(text, 1, 60) FROM outbox"` |
 | Recent alert history | `sqlite3 /var/lib/telemetry/telemetry.db "SELECT datetime(ts, 'unixepoch', 'localtime'), hub, sensor, state, previous, kind FROM alerts ORDER BY ts DESC LIMIT 20"` |
-| Upgrade | `sudo install -m 644 server/mqtt2slack.py /opt/mqtt2slack/ && sudo systemctl restart mqtt2slack` |
+| Upgrade | `sudo install -m 644 services/mqtt2slack/mqtt2slack.py /opt/mqtt2slack/ && sudo systemctl restart mqtt2slack` |
 
 ### Troubleshooting
 
@@ -556,7 +557,7 @@ sudo systemctl start mqtt2sqlite
 New database tables are created by themselves when the new version starts; existing data is kept. Since the state history version, `mqtt2sqlite` also subscribes to `sensor/#`: the default `state_topic = sensor/#` applies without a config change, but if your Mosquitto `acl_file` restricts the `telemetry` user, it needs `topic read sensor/#` (see step 2).
 
 ```bash
-sudo install -m 644 server/mqtt2sqlite.py /opt/mqtt2sqlite/ && sudo systemctl restart mqtt2sqlite
+sudo install -m 644 services/mqtt2sqlite/mqtt2sqlite.py /opt/mqtt2sqlite/ && sudo systemctl restart mqtt2sqlite
 ```
 
 ## Querying the Data
