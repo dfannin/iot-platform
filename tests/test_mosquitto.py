@@ -59,6 +59,16 @@ def test_connections_are_logged():
     assert "log_type notice" in conf and "log_type error" in conf
 
 
+def test_plain_listener_is_for_this_host_only():
+    # Tightening step 5: unencrypted MQTT only on the loopback address; devices use 8883.
+    listeners = [
+        line for line in lines(DIR / "conf.d" / "local.conf") if line.startswith("listener ")
+    ]
+    assert "listener 1883 127.0.0.1" in listeners
+    assert "listener 8883" in listeners
+    assert "listener 1883" not in listeners
+
+
 def test_password_file_is_used():
     assert "password_file /etc/mosquitto/passwords" in lines(DIR / "conf.d" / "local.conf")
 

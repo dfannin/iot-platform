@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.9**: architecture and restructure agreed; restructure phases 0–3 done |
+| Status | **Draft 0.10**: architecture and restructure agreed; restructure phases 0–3 done |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -19,6 +19,7 @@
 | 0.7 | 2026-11-21 | Phases 0 and 1 done: scaffold (CLAUDE.md, CI) and `esp32-monitor/server/` moved here with its history (byte-identical files, 70 tests pass, dashboards regenerate identically). Phase 4 also moves the sketches locally from `~/Arduino/` to `~/src/iot/`, symlinked back into `~/Arduino/` |
 | 0.8 | 2026-11-22 | Phase 2 done: host-wide Grafana alerting moved from router-monitor to `grafana/shared/` with its history, with `build_shared_alerting.py` and `deploy/install-grafana-shared.sh`. Checked on the server: installed files identical to git, installer reported `files changed: 0`, Slack contact-point test works |
 | 0.9 | 2026-11-22 | Phase 3 done: Mosquitto configuration in git (`mosquitto/`), byte-identical to the server's; planned access rules in `mosquitto/acl.example` (not active). Findings added to §12 Known Gaps (no ACL, plain listener on every interface, error-only logging) with the order for fixing them (O11) |
+| 0.10 | 2026-11-22 | Broker tightening: connection logging (step 1) done; the log showed all three devices on TLS 8883 (as the admin user) and only the local services on 1883, so step 5 (plain listener on `127.0.0.1` only) was brought forward. Node-RED retired (A8, O5 done). §12 Known Gaps and O11 updated |
 
 ## Contents
 
@@ -456,7 +457,7 @@ The aim is **reasonable protection for a home system**: an attacker on the inter
 ### Known Gaps
 
 - **Plain-text fallback in the current firmware.** Today's devices fall back to unencrypted MQTT if TLS fails, which would let an attacker on the LAN force plain text (T2). It was a debugging aid and is no longer needed: **decided to remove it** (A9). Until the firmware is updated (O7), the gap remains.
-- **Broker today (found in phase 3):** no access rules (every user with a password may publish and subscribe to every topic, including `cmd/#`), and the plain listener 1883 is open on every interface, with only error logging. The planned order for fixing this is in `mosquitto/README.md` (O11).
+- **Broker (found in phase 3):** no access rules (every user with a password may publish and subscribe to every topic, including `cmd/#`), and all three devices log in as the admin user. Fixed so far: connection logging, and the plain listener 1883 limited to `127.0.0.1` (the log showed all devices on TLS 8883). The order for the rest is in `mosquitto/README.md` (O11).
 - **No outside monitoring of the server itself.** If the server is down, nothing alerts (the same gap router-monitor accepts).
 
 ## 13. Network and Server Monitoring (Future)
@@ -588,7 +589,7 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 | A5 | Two alert paths, one owner each: alert router (`rules.toml`) for states/events, Grafana for metrics; shared severities and channels | Everything in Grafana; everything in the router | Each alert type is filtered in one obvious place |
 | A6 | Custom FastAPI control service with an htmx UI built in three phases (registry, garage controls, then generated from discovery); hosts `garagebot` | Home Assistant; Node-RED Dashboard | Small and testable; we build the UI |
 | A7 | Remote access through a NetBird mesh VPN, hosted now, self-hosted later | Tailscale; Headscale; plain WireGuard; public tunnel | No open ports; the hosted provider coordinates but cannot read traffic; open-source exit path |
-| A8 | Retire Node-RED | Keep it | One fewer service on the server |
+| A8 | Retire Node-RED (done 2026-11-21: stopped, nothing connects to the broker from it) | Keep it | One fewer service on the server |
 | A9 | Security by layers ([§12](#12-security)): no public listeners, TLS and per-user ACLs on MQTT, logins on every web UI, least-privilege services, audit of every control action | Rely on the home network being trusted | Some setup work (users, ACLs, certificates); devices connect with TLS only (plain-text fallback removed) |
 | A10 | Firmware features chosen at compile time per device; flash/RAM budgets checked in CI; two power classes (always connected, sleepy) ([§6](#6-shared-firmware-library)) | One full-featured build for all devices | Small boards and battery devices fit; sleepy devices take settings at the next wake-up |
 | A11 | Device registry in the control service, with a link to each device's own web page ([§9](#9-device-control)) | Devices found by hand or by mDNS browsing | One page lists every device, its state and its page |
@@ -604,10 +605,10 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 | O2 | MQTT contract details | Discovery format checked against the Home Assistant docs (done, §5.1). Still open: `sensor/<loc>/status` kept or renamed; payload versioning; the `cmd/<loc>/device` payloads (REBOOT, OTA) |
 | O3 | router-monitor events on MQTT | Optional; would add `paho-mqtt` to router-monitor, which is a design change there (its runtime dependency is `requests` only) |
 | O4 | IPv6 test | Does the gateway give the server a public IPv6 address and allow an inbound IPv6 port? If so, plain WireGuard is possible with no third party |
-| O5 | Retire Node-RED | Confirm nothing still depends on it |
+| O5 | Retire Node-RED | Done 2026-11-21: stopped and no longer used; the broker log shows no other clients |
 | O6 | Control service security | Users and roles, which commands need confirmation, rate limits |
 | O7 | TLS-only firmware | Decided (A9); to do: remove the plain-text MQTT fallback from `esp32-door`, `esp32-monitor` and `esp32-garage` (then in `esp32-iot-common`); plain text only on the broker's `localhost` listener |
 | O8 | Separate IoT WiFi network | Check whether the BGW530 can put the ESP32s on a guest/IoT network isolated from laptops and phones |
 | O9 | Network and server monitoring requirements | Which hosts, which measurements, retention, which alerts; then choose the storage ([§13](#13-network-and-server-monitoring-future)) |
-| O11 | Tighten the broker | In order, each checked before the next (`mosquitto/README.md`): connection logging; one user per device and service; access rules from `mosquitto/acl.example`; TLS-only firmware (O7); plain listener on `localhost` only |
+| O11 | Tighten the broker | Each step checked before the next (`mosquitto/README.md`). Done: connection logging (1); plain listener on `127.0.0.1` only (5, brought forward: no LAN client used 1883). To do: one user per device and service (2; today all devices use the admin user), access rules from `mosquitto/acl.example` (3), TLS-only firmware (4, O7) |
 | O10 | Flash/RAM budgets per device | Measure today's builds and set the CI limits. Power classes are deferred (X5) |
