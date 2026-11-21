@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.5**: architecture agreed; the repository restructure is the next step |
+| Status | **Draft 0.6**: architecture and repository restructure agreed |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -15,6 +15,7 @@
 | 0.3 | 2026-11-21 | Goals G8 (memory-limited, low-power firmware) and G9 (future network and server monitoring); constraints for ESP32 memory and power; §6.1 compile-time feature selection with CI budgets, §6.2 power classes; §9 device registry fields, including the device page URL; plain-text MQTT fallback removed by decision (A9, O7); new §12 Network and Server Monitoring (preliminary); decisions A10, A11; open items O9, O10. Sections 12–14 renumbered to 13–15 |
 | 0.4 | 2026-11-21 | Outcome of the [architecture review](architecture-review.md): self-description uses Home Assistant device-based discovery instead of our own `meta/` (§5.1, X2); fleet OTA (§6.3, M1); not ESPHome (X4); sleepy devices deferred (X5); two alert paths kept because Grafana's 1–2 min delay is too long (X3), silences and inhibition later (M5, M6); control UI in three phases (X1); new sections Testing and Operations (M2–M4 now; M9–M11 later) and Roadmap; decisions A12–A14. Sections renumbered |
 | 0.5 | 2026-11-21 | §5.1 checked against the Home Assistant documentation source: `uniq_id` added to each component (required), availability mapped to the existing `sensor/<loc>/status` last will, cover state template lower-cased to match the defaults, table of the documented rules (topic, required keys, abbreviations, extra keys ignored, retained vs birth message, removal); O2 updated |
+| 0.6 | 2026-11-21 | Repository restructure agreed (§15): layout of this repository, phases 0–6, history kept for moved code, Python services moved as they are, shared library through the Arduino libraries folder and tags, `esp32-monitor` renamed `esp32-shed`, `garage-control` archived |
 
 ## Contents
 
@@ -32,7 +33,7 @@
 12. [Security](#12-security)
 13. [Network and Server Monitoring (Future)](#13-network-and-server-monitoring-future)
 14. [Roadmap](#14-roadmap)
-15. [Repository Layout (Proposed)](#15-repository-layout-proposed)
+15. [Repository Layout](#15-repository-layout)
 16. [Decisions](#16-decisions)
 17. [Open Items](#17-open-items)
 
@@ -268,7 +269,7 @@ Arduino IDE / `ArduinoOTA` stays available for development. Signed firmware imag
 - **Generated dashboards.** Both projects already build dashboards with `build_dashboards.py` (Python → JSON, provisioned from files, checked by tests). Merge them into one generator in this repository with reusable helpers: a device-health row, a state timeline from `state_events`, a telemetry graph by `hub/sensor/field`, an events table. A new chart is a few lines of Python.
 - **Views, not tables.** Grafana queries views (the router-monitor rule), so tables can change underneath without breaking dashboards.
 - **Folders by domain:** Devices (health), Shed, Doors, Garage, Router. One SQLite datasource per database.
-- **Device integrations.** A device repository may ship its own panels and alert rules in an `integration/` folder that the platform's generator and installer pick up ([§15](#15-repository-layout-proposed)).
+- **Device integrations.** A device repository may ship its own panels and alert rules in an `integration/` folder that the platform's generator and installer pick up ([§15](#15-repository-layout)).
 
 ## 8. Slack Alerts and Filtering
 
@@ -493,15 +494,17 @@ The aim is **reasonable protection for a home system**: an attacker on the inter
 | **4. Later** | Silences and inhibition (M5, M6), automations (M8), configuration as code (M9), dev stack (M10), certificate lifecycle (M11), control UI phase 3, network monitoring ([§13](#13-network-and-server-monitoring-future)) |
 | **Not planned** | Full device shadow (M7), second notification channel (M12), ESPHome (X4), sleepy devices until a battery device exists (X5) |
 
-## 15. Repository Layout (Proposed)
+## 15. Repository Layout
 
-To be settled in the next discussion.
+Agreed 2026-11-21. The work is done in phases ([§15.2](#152-restructure-phases)); nothing has moved yet.
+
+### 15.1 Repositories
 
 | Repository | Role |
 |---|---|
 | `iot-platform` (this repository) | Everything server side and shared: Mosquitto configuration and ACL, the MQTT contract, `mqtt2sqlite`, alert router, control service (with `garagebot`), Grafana shared provisioning and the dashboard/alert generators, one installer, architecture documents. Takes over `esp32-monitor/server/` and `router-monitor/deploy/grafana/shared/` |
 | `esp32-iot-common` (new) | Arduino library for all firmware ([§6](#6-shared-firmware-library)) |
-| `esp32-door`, `esp32-monitor`, `esp32-garage` | Firmware only, plus an `integration/` folder (device manifest, dashboard panels, alert rules). `garage-control` moves into `esp32-garage/hardware/` |
+| `esp32-door`, `esp32-shed` (renamed from `esp32-monitor`), `esp32-garage` | Firmware only, plus an `integration/` folder (device manifest, dashboard panels, alert rules) later. `garage-control` moves into `esp32-garage/hardware/` and is then archived |
 | `router-monitor` | Stays a standalone project: collector, database, its own dashboards and alert rules (see below) |
 | `net-monitor` (future) | Network and server monitoring ([§13](#13-network-and-server-monitoring-future)), built the same way as `router-monitor` |
 
@@ -524,10 +527,51 @@ The router's dashboards and rules stay with the router because they depend on it
 ├── iot-platform/
 ├── esp32-iot-common/
 ├── esp32-door/
-├── esp32-monitor/
+├── esp32-shed/
 ├── esp32-garage/
 └── router-monitor/
 ```
+
+**Layout of this repository** (filled in by the phases below):
+
+```text
+iot-platform/
+├── README.md  CLAUDE.md  CHANGELOG.md
+├── docs/           architecture.md, architecture-review.md, mqtt-contract.md (later)
+├── mosquitto/      conf.d/iot.conf, acl.example (no password file in git)
+├── services/
+│   ├── mqtt2sqlite/    from esp32-monitor/server/ (script, ini example, systemd unit, tests)
+│   ├── mqtt2slack/     from esp32-monitor/server/ (later becomes the alert router)
+│   └── control/        later
+├── grafana/
+│   ├── shared/         from router-monitor/deploy/grafana/shared/
+│   └── telemetry/      from esp32-monitor/server/grafana/ (datasource, dashboards, generator)
+├── contract/       schemas and contract-check (later)
+├── tools/          add-device, fake device (later)
+└── deploy/         installer, systemd, Caddy (later)
+```
+
+Firmware images for OTA live on the server, not in git; the repository holds only the scripts that build and serve them.
+
+### 15.2 Restructure Phases
+
+**Principles:** move first, change later (a move keeps the code and the server install paths as they are; behavior changes are separate steps); one repository change at a time, checked before the next; git history kept for code with history; a pointer README left in each old location for a while. Steps on the server are run by hand with a written check.
+
+| Phase | Change | Repositories | Server impact | Check |
+|---|---|---|---|---|
+| 0 | Scaffold: `CLAUDE.md`, `.gitignore` for secrets, CI with `pytest` and `ruff` | iot-platform | None | CI passes |
+| 1 | Move `esp32-monitor/server/` **with its history** (`git filter-repo`); scripts, install paths and tests unchanged; pointer README in the old place | iot-platform, esp32-monitor | None | Tests pass; files installed from the new place are identical to the server's |
+| 2 | Move the shared Grafana alerting; small installer here; router-monitor drops `--shared-alerting` and updates its design (§5.6, §13), `CLAUDE.md` and tests | iot-platform, router-monitor | Re-install the same files | `/etc/grafana/provisioning/alerting/` unchanged; contact-point test reaches Slack |
+| 3 | Mosquitto configuration into git from the server's current files, cleaned of secrets, with the ACL plan | iot-platform | None until applied | Broker accepts the configuration |
+| 4 | `garage-control` → `esp32-garage/hardware/`; archive `garage-control`; rename `esp32-monitor` → `esp32-shed` and update links | esp32-garage, esp32-monitor, all READMEs | None | Links and images render; old URLs redirect |
+| 5 | Create `esp32-iot-common` with the files that are identical in every device repo (`wifi_diag.*`, `stats_util.h`, `web_wifi.h`); switch devices one at a time, door first | new repository, device repositories | Reflash each device | Each device builds and reports as before |
+| 6 | Remove the plain-text MQTT fallback (O7); then move MQTT/TLS, NTP, OTA and status into the library, one device at a time | device repositories, library | Reflash | No plain-text connections in the broker log |
+
+**Decisions for the restructure:**
+- **Git history:** kept for moved code with history (`git filter-repo` of `server/`, merged here). `garage-control` has one commit and is copied.
+- **Python services:** moved as they are; turned into one package (one venv, console commands, like router-monitor) in a later, separate step.
+- **Shared Arduino library:** developed through a symlink from `~/src/iot/esp32-iot-common` into `~/Arduino/libraries/`; CI checks out a pinned library tag. No git submodules.
+- **Renames:** `esp32-monitor` → `esp32-shed` (GitHub redirects the old name; MQTT topics do not change). `garage-control` archived after its move.
 
 ## 16. Decisions
 
@@ -552,7 +596,7 @@ The router's dashboards and rules stay with the router because they depend on it
 
 | # | Item | Notes |
 |---|---|---|
-| O1 | Repository restructure | Next discussion: what moves where, in what order, without breaking the running services |
+| O1 | Repository restructure | Agreed ([§15](#15-repository-layout)); phases 0–6 to carry out |
 | O2 | MQTT contract details | Discovery format checked against the Home Assistant docs (done, §5.1). Still open: `sensor/<loc>/status` kept or renamed; payload versioning; the `cmd/<loc>/device` payloads (REBOOT, OTA) |
 | O3 | router-monitor events on MQTT | Optional; would add `paho-mqtt` to router-monitor, which is a design change there (its runtime dependency is `requests` only) |
 | O4 | IPv6 test | Does the gateway give the server a public IPv6 address and allow an inbound IPv6 port? If so, plain WireGuard is possible with no third party |
