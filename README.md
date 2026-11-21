@@ -8,7 +8,8 @@ The shared server side for my home IoT projects: the ESP32 devices (shed, doors,
 
 | Document | Contents |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | Goals, the current setup, target architecture, MQTT contract outline, alerts, control, external access, decisions and open items |
+| [docs/architecture.md](docs/architecture.md) | Goals, the current setup, target architecture, MQTT contract outline, firmware, alerts, control, testing and operations, external access, security, roadmap, decisions and open items |
+| [docs/architecture-review.md](docs/architecture-review.md) | Comparison with other IoT architectures, missing and extra features, and what was decided |
 
 ## Planned Contents (Proposed)
 
@@ -16,13 +17,16 @@ The shared server side for my home IoT projects: the ESP32 devices (shed, doors,
 |---|---|---|
 | `mosquitto/` | Broker configuration and ACL | Not yet in git |
 | `docs/mqtt-contract.md` | Topics and payloads every device follows | New |
+| `contract/` | JSON Schemas for every message type, `contract-check` | New |
+| `tools/` | `add-device` onboarding, device simulator | New |
+| `firmware/` | Firmware catalog for fleet OTA (built by the device repos' CI) | New |
 | `services/mqtt2sqlite/` | MQTT → SQLite ingester | `esp32-monitor/server/` |
 | `services/alert-router/` | MQTT → Slack with a rules file | `esp32-monitor/server/mqtt2slack.py` |
 | `services/control/` | FastAPI control service and `garagebot` | New (`esp32-garage` design §11.1) |
 | `grafana/` | Shared provisioning, dashboard and alert generators | `esp32-monitor/server/grafana/`, `router-monitor/deploy/grafana/shared/` |
 | `deploy/` | Installer, systemd units, Caddy | New |
 
-Nothing has moved yet; see [Open Items](docs/architecture.md#15-open-items).
+Nothing has moved yet; see [Open Items](docs/architecture.md#17-open-items).
 
 ## Related Repositories
 
