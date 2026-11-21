@@ -22,7 +22,7 @@ The shared server side for my home IoT projects: the ESP32 devices (shed, doors,
 | `grafana/` | Shared provisioning, dashboard and alert generators | `esp32-monitor/server/grafana/`, `router-monitor/deploy/grafana/shared/` |
 | `deploy/` | Installer, systemd units, Caddy | New |
 
-Nothing has moved yet; see [Open Items](docs/architecture.md#13-open-items).
+Nothing has moved yet; see [Open Items](docs/architecture.md#14-open-items).
 
 ## Related Repositories
 

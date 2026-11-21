@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.1**: architecture agreed; the repository restructure is the next step |
+| Status | **Draft 0.2**: architecture agreed; the repository restructure is the next step |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -11,6 +11,7 @@
 | Rev | Date | Change |
 |---|---|---|
 | 0.1 | 2026-11-21 | First version: keep MQTT + SQLite + Grafana + small Python services; add an MQTT message contract, a shared firmware library, a FastAPI control service and remote access through a NetBird mesh VPN |
+| 0.2 | 2026-11-21 | Security goal G7 and new §11 Security (threat model and protections per layer; decision A9; open items O7, O8). Constraint reworded: the code is small and testable (not teaching material). §12 states exactly what stays in `router-monitor` (collector, database, its dashboards and rules) and what moves here (host-wide Grafana alerting only). Sections 11–13 renumbered to 12–14 |
 
 ## Contents
 
@@ -24,9 +25,10 @@
 8. [Slack Alerts and Filtering](#8-slack-alerts-and-filtering)
 9. [Device Control](#9-device-control)
 10. [External Access](#10-external-access)
-11. [Repository Layout (Proposed)](#11-repository-layout-proposed)
-12. [Decisions](#12-decisions)
-13. [Open Items](#13-open-items)
+11. [Security](#11-security)
+12. [Repository Layout (Proposed)](#12-repository-layout-proposed)
+13. [Decisions](#13-decisions)
+14. [Open Items](#14-open-items)
 
 ## 1. Goals
 
@@ -38,11 +40,12 @@
 | G4 | Device settings can be changed and devices controlled | [§9](#9-device-control) |
 | G5 | Control and graphs can be reached from a browser or phone away from home | [§10](#10-external-access) |
 | G6 | Lightweight and open source; runs on the existing server | Throughout |
+| G7 | Reasonable protection against attackers: nothing reachable from the internet, every connection authenticated and encrypted, least privilege for devices and services, and a record of every control action | [§11](#11-security) |
 
 **Constraints:**
 - The server is a small fanless PC (Celeron N3350, 4 GB RAM, 32 GB eMMC) that already runs Mosquitto and Grafana. Write volume and memory use matter.
 - The only internet connection is an AT&T Internet Air gateway (fixed wireless over cellular), which almost certainly sits behind carrier-grade NAT (CGNAT): no inbound connections from the internet.
-- The code is also teaching material: small, readable and testable beats clever.
+- The code is small and testable: small single-purpose services and firmware modules, pure functions tested against fixtures, I/O kept at the edges.
 
 ## 2. Where We Are Today
 
@@ -158,7 +161,7 @@ Device sketches keep only their own sensors, actuators and alarm logic. The libr
 - **Generated dashboards.** Both projects already build dashboards with `build_dashboards.py` (Python → JSON, provisioned from files, checked by tests). Merge them into one generator in this repository with reusable helpers: a device-health row, a state timeline from `state_events`, a telemetry graph by `hub/sensor/field`, an events table. A new chart is a few lines of Python.
 - **Views, not tables.** Grafana queries views (the router-monitor rule), so tables can change underneath without breaking dashboards.
 - **Folders by domain:** Devices (health), Shed, Doors, Garage, Router. One SQLite datasource per database.
-- **Device integrations.** A device repository may ship its own panels and alert rules in an `integration/` folder that the platform's generator and installer pick up ([§11](#11-repository-layout-proposed)).
+- **Device integrations.** A device repository may ship its own panels and alert rules in an `integration/` folder that the platform's generator and installer pick up ([§12](#12-repository-layout-proposed)).
 
 ## 8. Slack Alerts and Filtering
 
@@ -214,7 +217,7 @@ A small **control service** (Python, FastAPI + paho-mqtt + SQLite; one process, 
 - **Authentication:** its own login (users in a config file, password hashes), session cookies, and the mesh VPN in front ([§10](#10-external-access)).
 
 **Alternatives not chosen:**
-- **Home Assistant:** does all of this and has a phone app, but it is heavy for this server, duplicates Grafana and SQLite, and hides the mechanics (less useful for teaching). `esp32-garage` design decision D3 also chose not to use it. Keeping `meta/` close to Home Assistant discovery leaves the option open.
+- **Home Assistant:** does all of this and has a phone app, but it is heavy for this server, duplicates Grafana and SQLite, and hides the mechanics (harder to test and to keep small). `esp32-garage` design decision D3 also chose not to use it. Keeping `meta/` close to Home Assistant discovery leaves the option open.
 - **Node-RED Dashboard:** already installed and quick to build, but its logic lives in flows that are hard to test and review.
 - **Grafana buttons:** awkward to build, coarse permissions, no confirmation step.
 
@@ -251,12 +254,48 @@ The server and each phone or laptop run a **NetBird** client and join a private 
 |---|---|
 | Tailscale | Same model with the most polished apps, but the coordination service is closed source. A fine substitute if NetBird disappoints |
 | Headscale | Open-source Tailscale coordination server; needs a VPS from day one |
-| Plain WireGuard | Needs an inbound port, blocked by CGNAT on IPv4. **Might work over IPv6**: see [Open Items](#13-open-items) |
+| Plain WireGuard | Needs an inbound port, blocked by CGNAT on IPv4. **Might work over IPv6**: see [Open Items](#14-open-items) |
 | Public tunnel (Cloudflare Tunnel, ngrok) | Puts the login page, and garage control, on the public internet; mostly closed source |
 
 **Limitation of every option:** when the gateway is down, remote access is down too. router-monitor already accepts the same limit for its Slack alerts.
 
-## 11. Repository Layout (Proposed)
+## 11. Security
+
+The aim is **reasonable protection for a home system**: an attacker on the internet should find nothing to attack, and an attacker who gets onto the home network (a guest, a compromised gadget, a stolen phone) should not be able to control devices or read secrets. Defending against physical access to the hardware or a determined, well-funded attacker is out of scope.
+
+### Threats
+
+| # | Threat | Main protection |
+|---|---|---|
+| T1 | Someone on the internet probes the home | Nothing listens publicly: CGNAT, no port forwarding, remote access only through the mesh VPN ([§10](#10-external-access)) |
+| T2 | Someone on the home WiFi (guest, compromised smart TV or ESP32) sniffs or sends MQTT messages | TLS on MQTT, no anonymous login, one user per device, topic ACLs; only the control service may publish `cmd/#` and `set/#` |
+| T3 | A device is compromised or its credentials leak | Its MQTT user can publish only its own topics and cannot command other devices; revoke by deleting the user |
+| T4 | A phone or laptop is lost or stolen | Remove it from NetBird; the control service and Grafana still need their own logins |
+| T5 | Someone gets into Slack (or Slack is misused) | `garagebot` accepts commands only from a list of Slack user IDs; workspace two-factor authentication; every command is audited |
+| T6 | A secret ends up in git | Secrets live only in config files outside the repositories (mode 600/640); a test fails if a token or webhook URL appears in a tracked file (as router-monitor does) |
+| T7 | Unpatched software is exploited | Automatic security updates on the server; pinned, reviewed versions of Python packages and Grafana plugins |
+| T8 | A bad command damages something (garage door closes on a car) | The device enforces safety itself and refuses unsafe commands; confirmation in the UI; the server never assumes success |
+
+### Protections by Layer
+
+| Layer | Protection |
+|---|---|
+| **Network** | No public listeners. Firewall (`ufw`) on the server allows only the MQTT TLS port, Caddy (HTTPS) and SSH from the LAN and the VPN. Optional: put the ESP32s on a separate guest/IoT WiFi network if the gateway supports it |
+| **Remote access** | NetBird mesh VPN only; access rules let phones reach Caddy, not every port on the server; devices removed when lost |
+| **MQTT broker** | TLS listener for the LAN; plain-text listener on `localhost` only (for local services); `allow_anonymous false`; one user per device and per service; ACL per [§5](#5-the-mqtt-contract) |
+| **Devices** | Per-device MQTT credentials and CA certificate in `secrets.h`/`ca_cert.h` (not in git); OTA protected by a password; the device web page is read-only or password-protected for anything that changes state; commands and settings validated on the device |
+| **Web (Caddy, control service, Grafana)** | HTTPS everywhere; control service login with hashed passwords, secure session cookies, CSRF protection and confirmation for actions that move hardware; Grafana anonymous access off, admin password changed, other users as Viewers |
+| **Slack** | Bot tokens in config files outside git; Socket Mode (outbound only); allow-list of user IDs for commands |
+| **Server** | Each service runs as its own system user with systemd hardening (`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, only the directories it needs writable); SSH by key only; automatic security updates |
+| **Audit and detection** | Every command and setting change in the audit table (who, what, when, from where, result), shown in Grafana; Slack alert for a device that goes OFFLINE or a failed login burst |
+| **Recovery** | Nightly SQLite backups (as router-monitor does); configuration in git; secrets kept separately |
+
+### Known Gaps
+
+- **Plain-text fallback in the firmware.** The devices fall back to unencrypted MQTT if TLS fails. That is convenient but lets an attacker on the LAN force plain text (T2). The target is TLS-only devices (open item O7).
+- **No outside monitoring of the server itself.** If the server is down, nothing alerts (the same gap router-monitor accepts).
+
+## 12. Repository Layout (Proposed)
 
 To be settled in the next discussion.
 
@@ -265,7 +304,19 @@ To be settled in the next discussion.
 | `iot-platform` (this repository) | Everything server side and shared: Mosquitto configuration and ACL, the MQTT contract, `mqtt2sqlite`, alert router, control service (with `garagebot`), Grafana shared provisioning and the dashboard/alert generators, one installer, architecture documents. Takes over `esp32-monitor/server/` and `router-monitor/deploy/grafana/shared/` |
 | `esp32-iot-common` (new) | Arduino library for all firmware ([§6](#6-shared-firmware-library)) |
 | `esp32-door`, `esp32-monitor`, `esp32-garage` | Firmware only, plus an `integration/` folder (device manifest, dashboard panels, alert rules). `garage-control` moves into `esp32-garage/hardware/` |
-| `router-monitor` | Stays a standalone collector; ships its dashboards and rules as an integration |
+| `router-monitor` | Stays a standalone project: collector, database, its own dashboards and alert rules (see below) |
+
+**What stays in `router-monitor` and what moves.** Only the *host-wide* Grafana pieces move; everything specific to the router stays:
+
+| Stays in `router-monitor` | Moves to `iot-platform` |
+|---|---|
+| Router client (login, GET-only reads), parsing, poll job and systemd timer | `deploy/grafana/shared/`: the `slack-alerts` contact point, message template and notification policy tree, and its Grafana drop-in for the webhook secret |
+| SQLite schema, migrations, views (`v_sample`, `v_status`, …), backups | |
+| Its Grafana datasource, dashboards (Status, History, Events, Report) and dashboard generator | |
+| Its alert rule ("Router collector stale") and rule generator | |
+| `install.sh`, `INSTALL.md`, design documents, tests | |
+
+The router's dashboards and rules stay with the router because they depend on its views; they only *use* the shared contact point and policy, through the `project` and `severity` labels. Later, the router's dashboard generator may import shared panel helpers from this repository, but that is optional. The move is a change to `router-monitor`'s design (§5.6, §13) and is made there when the restructure is carried out.
 
 **Local checkout layout:** all repositories side by side under `~/src/iot/`:
 
@@ -279,7 +330,7 @@ To be settled in the next discussion.
 └── router-monitor/
 ```
 
-## 12. Decisions
+## 13. Decisions
 
 | ID | Decision | Alternatives considered | Consequences |
 |---|---|---|---|
@@ -288,11 +339,12 @@ To be settled in the next discussion.
 | A3 | Shared Arduino library `esp32-iot-common` | Keep copying files | One fix reaches every device; the library needs versioning |
 | A4 | Grafana for viewing and metric alerts only | Grafana as control UI | Control needs its own service (A6) |
 | A5 | Two alert paths, one owner each: alert router (`rules.toml`) for states/events, Grafana for metrics; shared severities and channels | Everything in Grafana; everything in the router | Each alert type is filtered in one obvious place |
-| A6 | Custom FastAPI control service with an htmx UI generated from `meta/`; hosts `garagebot` | Home Assistant; Node-RED Dashboard | Small, testable, good teaching material; we build the UI |
+| A6 | Custom FastAPI control service with an htmx UI generated from `meta/`; hosts `garagebot` | Home Assistant; Node-RED Dashboard | Small and testable; we build the UI |
 | A7 | Remote access through a NetBird mesh VPN, hosted now, self-hosted later | Tailscale; Headscale; plain WireGuard; public tunnel | No open ports; the hosted provider coordinates but cannot read traffic; open-source exit path |
 | A8 | Retire Node-RED | Keep it | One fewer service on the server |
+| A9 | Security by layers ([§11](#11-security)): no public listeners, TLS and per-user ACLs on MQTT, logins on every web UI, least-privilege services, audit of every control action | Rely on the home network being trusted | Some setup work (users, ACLs, certificates); firmware drops the plain-text fallback |
 
-## 13. Open Items
+## 14. Open Items
 
 | # | Item | Notes |
 |---|---|---|
@@ -302,3 +354,5 @@ To be settled in the next discussion.
 | O4 | IPv6 test | Does the gateway give the server a public IPv6 address and allow an inbound IPv6 port? If so, plain WireGuard is possible with no third party |
 | O5 | Retire Node-RED | Confirm nothing still depends on it |
 | O6 | Control service security | Users and roles, which commands need confirmation, rate limits |
+| O7 | TLS-only firmware | Remove the plain-text MQTT fallback from the devices (in `esp32-iot-common`); plain text only on the broker's `localhost` listener |
+| O8 | Separate IoT WiFi network | Check whether the BGW530 can put the ESP32s on a guest/IoT network isolated from laptops and phones |
