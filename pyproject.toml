@@ -1,0 +1,19 @@
+# Tool configuration only. The services are moved as they are (architecture §15.2)
+# and become one package in a later step.
+
+[tool.pytest.ini_options]
+testpaths = ["services", "tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"   # the server's system Python (Ubuntu 22.04)
+# Moved code is excluded until it is packaged and cleaned up (move first, change later).
+extend-exclude = [
+    "services/mqtt2sqlite",
+    "services/mqtt2slack",
+    "services/README.md",
+    "grafana/telemetry",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]

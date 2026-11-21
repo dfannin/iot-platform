@@ -1,0 +1,10 @@
+# Copy to /etc/grafana/provisioning/dashboards/telemetry.yaml
+apiVersion: 1
+providers:
+  - name: telemetry
+    folder: IoT
+    type: file
+    disableDeletion: true
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/dashboards/telemetry

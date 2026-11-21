@@ -1,0 +1,506 @@
+{
+  "uid": "iot-doors",
+  "title": "Door and Gate Status",
+  "description": "Open / closed history of every door and gate sensor (esp32-door nodes).",
+  "tags": [
+    "iot"
+  ],
+  "timezone": "browser",
+  "editable": true,
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "iot"
+      ],
+      "asDropdown": true,
+      "title": "IoT dashboards",
+      "includeVars": false,
+      "keepTime": true
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "table",
+      "title": "Doors and gates now",
+      "description": "Every door or gate sensor (any node that reports OPEN / CLOSED): current state and how long it has been in it.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "telemetry-sqlite"
+          },
+          "refId": "A",
+          "queryType": "table",
+          "rawQueryText": "SELECT e.hub || ' \u00b7 ' || e.sensor AS door, e.state AS state, e.ts AS since,\n       strftime('%s', 'now') - e.ts AS for_s\nFROM state_events e WHERE e.id = (SELECT MAX(e2.id) FROM state_events e2 WHERE e2.topic = e.topic) AND e.state IN ('OPEN', 'CLOSED') ORDER BY door",
+          "queryText": "SELECT e.hub || ' \u00b7 ' || e.sensor AS door, e.state AS state, e.ts AS since,\n       strftime('%s', 'now') - e.ts AS for_s\nFROM state_events e WHERE e.id = (SELECT MAX(e2.id) FROM state_events e2 WHERE e2.topic = e.topic) AND e.state IN ('OPEN', 'CLOSED') ORDER BY door",
+          "timeColumns": [
+            "time",
+            "ts",
+            "since"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "state"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "OPEN": {
+                        "color": "orange",
+                        "index": 0
+                      },
+                      "CLOSED": {
+                        "color": "green",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "since"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "for_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dtdurations"
+              },
+              {
+                "id": "displayName",
+                "value": "for"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 1,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "telemetry-sqlite"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 5
+      }
+    },
+    {
+      "type": "state-timeline",
+      "title": "Open / closed",
+      "description": "Orange = open, green = closed, one row per door or gate.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "telemetry-sqlite"
+          },
+          "refId": "A",
+          "queryType": "table",
+          "rawQueryText": "SELECT ts AS time, hub || ' \u00b7 ' || sensor AS hub, state FROM state_events\nWHERE state IN ('OPEN', 'CLOSED') AND ts >= $__from / 1000 AND ts < $__to / 1000\nUNION ALL\nSELECT $__from / 1000 AS time, e.hub || ' \u00b7 ' || e.sensor AS hub, e.state FROM state_events e\nWHERE e.id = (SELECT MAX(e2.id) FROM state_events e2 WHERE e2.topic = e.topic AND e2.ts < $__from / 1000) AND e.state IN ('OPEN', 'CLOSED')\nORDER BY time",
+          "queryText": "SELECT ts AS time, hub || ' \u00b7 ' || sensor AS hub, state FROM state_events\nWHERE state IN ('OPEN', 'CLOSED') AND ts >= $__from / 1000 AND ts < $__to / 1000\nUNION ALL\nSELECT $__from / 1000 AS time, e.hub || ' \u00b7 ' || e.sensor AS hub, e.state FROM state_events e\nWHERE e.id = (SELECT MAX(e2.id) FROM state_events e2 WHERE e2.topic = e.topic AND e2.ts < $__from / 1000) AND e.state IN ('OPEN', 'CLOSED')\nORDER BY time",
+          "timeColumns": [
+            "time",
+            "ts"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "ONLINE": {
+                  "color": "green",
+                  "index": 0
+                },
+                "OFFLINE": {
+                  "color": "red",
+                  "index": 1
+                },
+                "OPEN": {
+                  "color": "orange",
+                  "index": 2
+                },
+                "CLOSED": {
+                  "color": "green",
+                  "index": 3
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0
+          },
+          "displayName": "${__field.labels.hub}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "hub"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": true
+            }
+          }
+        }
+      ],
+      "id": 2,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "telemetry-sqlite"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 7
+      }
+    },
+    {
+      "type": "barchart",
+      "title": "Opens per day",
+      "description": "Number of times each door or gate opened.",
+      "timeFrom": "30d",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "telemetry-sqlite"
+          },
+          "refId": "A",
+          "queryType": "table",
+          "rawQueryText": "SELECT date(ts, 'unixepoch', 'localtime') AS day, hub || ' \u00b7 ' || sensor AS door, COUNT(*) AS opens\nFROM state_events WHERE state = 'OPEN' AND ts >= $__from / 1000 AND ts < $__to / 1000 GROUP BY day, door ORDER BY day",
+          "queryText": "SELECT date(ts, 'unixepoch', 'localtime') AS day, hub || ' \u00b7 ' || sensor AS door, COUNT(*) AS opens\nFROM state_events WHERE state = 'OPEN' AND ts >= $__from / 1000 AND ts < $__to / 1000 GROUP BY day, door ORDER BY day",
+          "timeColumns": []
+        }
+      ],
+      "transformations": [
+        {
+          "id": "groupingToMatrix",
+          "options": {
+            "columnField": "door",
+            "rowField": "day",
+            "valueField": "opens",
+            "emptyValue": "zero"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "day\\door",
+        "orientation": "vertical",
+        "groupWidth": 0.7,
+        "barWidth": 0.9,
+        "showValue": "auto",
+        "stacking": "none",
+        "xTickLabelRotation": -45,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 3,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "telemetry-sqlite"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 9
+      }
+    },
+    {
+      "type": "barchart",
+      "title": "Time open per day",
+      "description": "Minutes each door or gate was open. An opening is counted on the day it started.",
+      "timeFrom": "30d",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "telemetry-sqlite"
+          },
+          "refId": "A",
+          "queryType": "table",
+          "rawQueryText": "WITH ev AS (\n  SELECT ts, state, hub || ' \u00b7 ' || sensor AS door,\n         LEAD(ts) OVER (PARTITION BY topic ORDER BY ts, id) AS next_ts\n  FROM state_events WHERE state IN ('OPEN', 'CLOSED'))\nSELECT date(ts, 'unixepoch', 'localtime') AS day, door,\n       ROUND(SUM(COALESCE(next_ts, strftime('%s', 'now')) - ts) / 60.0, 1) AS open_minutes\nFROM ev WHERE state = 'OPEN' AND ts >= $__from / 1000 AND ts < $__to / 1000 GROUP BY day, door ORDER BY day",
+          "queryText": "WITH ev AS (\n  SELECT ts, state, hub || ' \u00b7 ' || sensor AS door,\n         LEAD(ts) OVER (PARTITION BY topic ORDER BY ts, id) AS next_ts\n  FROM state_events WHERE state IN ('OPEN', 'CLOSED'))\nSELECT date(ts, 'unixepoch', 'localtime') AS day, door,\n       ROUND(SUM(COALESCE(next_ts, strftime('%s', 'now')) - ts) / 60.0, 1) AS open_minutes\nFROM ev WHERE state = 'OPEN' AND ts >= $__from / 1000 AND ts < $__to / 1000 GROUP BY day, door ORDER BY day",
+          "timeColumns": []
+        }
+      ],
+      "transformations": [
+        {
+          "id": "groupingToMatrix",
+          "options": {
+            "columnField": "door",
+            "rowField": "day",
+            "valueField": "open_minutes",
+            "emptyValue": "zero"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "decimals": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 1
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "day\\door",
+        "orientation": "vertical",
+        "groupWidth": 0.7,
+        "barWidth": 0.9,
+        "showValue": "auto",
+        "stacking": "none",
+        "xTickLabelRotation": -45,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 4,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "telemetry-sqlite"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 9
+      }
+    },
+    {
+      "type": "table",
+      "title": "Recent events",
+      "description": "Every open and close in the time range (newest first).",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "telemetry-sqlite"
+          },
+          "refId": "A",
+          "queryType": "table",
+          "rawQueryText": "SELECT ts AS time, hub || ' \u00b7 ' || sensor AS door, state, previous, reason FROM state_events WHERE state IN ('OPEN', 'CLOSED') AND ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts DESC LIMIT 500",
+          "queryText": "SELECT ts AS time, hub || ' \u00b7 ' || sensor AS door, state, previous, reason FROM state_events WHERE state IN ('OPEN', 'CLOSED') AND ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts DESC LIMIT 500",
+          "timeColumns": [
+            "time",
+            "ts"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "state"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "OPEN": {
+                        "color": "orange",
+                        "index": 0
+                      },
+                      "CLOSED": {
+                        "color": "green",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "time"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              },
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "id": 5,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "telemetry-sqlite"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 24,
+        "h": 8
+      }
+    }
+  ]
+}

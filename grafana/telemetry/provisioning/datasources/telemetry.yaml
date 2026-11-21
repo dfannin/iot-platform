@@ -1,0 +1,11 @@
+# Copy to /etc/grafana/provisioning/datasources/telemetry.yaml
+apiVersion: 1
+datasources:
+  - name: Telemetry
+    type: frser-sqlite-datasource
+    uid: telemetry-sqlite
+    access: proxy
+    isDefault: true
+    editable: false
+    jsonData:
+      path: /var/lib/telemetry/telemetry.db
