@@ -73,8 +73,20 @@ def test_password_file_is_used():
     assert "password_file /etc/mosquitto/passwords" in lines(DIR / "conf.d" / "local.conf")
 
 
-def test_acl_is_not_active_yet():
-    assert not any(line.startswith("acl_file") for path in CONFIGS for line in lines(path))
+def test_acl_is_active():
+    # Tightening step 3: the access rules are switched on.
+    assert "acl_file /etc/mosquitto/acl" in lines(DIR / "conf.d" / "local.conf")
+
+
+def test_the_garage_may_publish_its_bus_log():
+    # The garage firmware publishes debug/garage/<door>/bus (Security+ bus logger, M3a).
+    assert ("write", "debug/garage/#") in acl_rules()["garage00"]
+
+
+def test_services_can_read_what_they_subscribe_to():
+    # mqtt2sqlite: telemetry/# and sensor/#; mqtt2slack: sensor/#
+    telemetry = acl_rules()["telemetry"]
+    assert ("read", "telemetry/#") in telemetry and ("read", "sensor/#") in telemetry
 
 
 def test_acl_lines_are_valid():

@@ -8,7 +8,7 @@ Configuration of the Mosquitto broker on the IoT server (Mosquitto 2.0.22, Ubunt
 |---|---|---|
 | `mosquitto.conf` | `/etc/mosquitto/mosquitto.conf` | Same as the server (the package default with the log line commented out) |
 | `conf.d/local.conf` | `/etc/mosquitto/conf.d/local.conf` | Password file, plain listener 1883 on `127.0.0.1` only (step 5), TLS listener 8883; connection logging (step 1) |
-| `acl.example` | `/etc/mosquitto/acl` (later) | **Not active**: planned access rules, one user per device and service |
+| `acl.example` | `/etc/mosquitto/acl` (with the admin user's name) | Access rules, one user per device and service (step 3) |
 
 **Not in git** (secrets, or created on the server):
 
@@ -53,9 +53,53 @@ Each step is a separate change, checked before the next. None is part of the res
    ```
 
    It checks the name against `acl.example`, backs up the password file, adds the user with a random password, keeps the file's owner and mode, reloads Mosquitto and prints the `MQTT_USER` / `MQTT_PASSWORD` lines. On the **development machine**, put those lines in the device's `secrets.h` and upload over OTA. Check: the log shows the device connecting as its own user (`u'backyard00'`). `--rotate` sets a new password for an existing user. Repeat for `shed00` and `garage00` (and later `control`); the admin user keeps working throughout.
-3. **Access rules.** Copy `acl.example` to `/etc/mosquitto/acl` (replace `ADMIN_USER`), add `acl_file /etc/mosquitto/acl` to `conf.d/local.conf`, restart, and watch the log for `denied`.
+3. **Access rules.** Install `acl.example` as `/etc/mosquitto/acl` with the admin user's name, switch on `acl_file` in `conf.d/local.conf` and restart: see [Step 3 on the Server](#step-3-on-the-server).
 4. ✅ **TLS-only devices.** The plain-text fallback is removed from all three devices (architecture O7; door 4.5.0, shed 1.12.0, garage 2.4.2-m3a), and the log shows all of them on 8883.
 5. ✅ **Plain listener on localhost only:** `listener 1883 127.0.0.1`, for the local services only. Install and check: as step 1 (below), with the backup named `.before-step5`; then confirm both services reconnected (`New client connected from 127.0.0.1 ... as mqtt2slack` and `... as mqtt2sqlite`).
+
+## Step 3 on the Server
+
+Run on the **production server**, from the root of an up-to-date `iot-platform` checkout. Steps 1, 2, 4 and 5 must be done first: every device logs in as its own user.
+
+**1. Install the rules** with the admin user's name in place of `ADMIN_USER` (the name is typed here, so it never goes into git):
+
+```bash
+read -r -p "Admin MQTT user: " ADMIN
+sed "s/^user ADMIN_USER\$/user $ADMIN/" mosquitto/acl.example | sudo install -m 600 -o mosquitto -g mosquitto /dev/stdin /etc/mosquitto/acl
+```
+
+**2. Check them before switching on.** No placeholder left, and every user in the password file has rules (a user without rules is locked out):
+
+```bash
+sudo grep -c '^user ADMIN_USER' /etc/mosquitto/acl
+diff <(sudo cut -d: -f1 /etc/mosquitto/passwords | sort) <(sudo awk '$1=="user"{print $2}' /etc/mosquitto/acl | sort)
+```
+
+Expected: `0`, then only `> control` (planned for the control service, not created yet). A line starting with `<` is a user with a password but no rules: stop and fix `acl.example` first.
+
+**3. Switch on and restart:**
+
+```bash
+sudo cp -p /etc/mosquitto/conf.d/local.conf /etc/mosquitto/conf.d/local.conf.before-step3
+sudo install -m 644 mosquitto/conf.d/local.conf /etc/mosquitto/conf.d/local.conf
+sudo systemctl restart mosquitto && systemctl is-active mosquitto
+```
+
+**4. Check** (`active`, then within about three minutes):
+
+```bash
+sudo grep "New client connected" /var/log/mosquitto/mosquitto.log | tail -5
+```
+
+All five clients back: `backyard00`, `shed00`, `garage00`, `mqtt2sqlite` and `mqtt2slack`. Then check that data still flows: new points in Grafana within 5 minutes, and a door change reaching Slack.
+
+**Undo** (rules off again; the ACL file can stay, it is unused without `acl_file`):
+
+```bash
+sudo cp -p /etc/mosquitto/conf.d/local.conf.before-step3 /etc/mosquitto/conf.d/local.conf && sudo systemctl restart mosquitto
+```
+
+**Adding a device later:** add its `user` block to `acl.example` first (in git), install the rules again (step 1 above), restart Mosquitto, then run `tools/add_device.py`.
 
 ## Step 1 on the Server
 

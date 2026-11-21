@@ -1,10 +1,8 @@
-# Mosquitto access control list (ACL): the planned rules (architecture §5, §12).
+# Mosquitto access control list (ACL) (architecture §5, §12).
 #
-# NOT ACTIVE. The broker has no acl_file today, so every user with a password may
-# publish and subscribe to every topic. Turning this on is a later, separate step
-# (mosquitto/README.md, "Tightening the broker"): create the users first, then add
-#   acl_file /etc/mosquitto/acl
-# to conf.d/local.conf and restart Mosquitto. Users not listed here get no access.
+# Installed as /etc/mosquitto/acl (owner mosquitto, mode 600) with ADMIN_USER
+# replaced, and switched on by "acl_file /etc/mosquitto/acl" in conf.d/local.conf
+# (mosquitto/README.md, "Step 3 on the Server"). Users not listed here get no access.
 #
 # One user per device and per service. Device users are named after the hub
 # (<location>00); topics use the location. Replace ADMIN_USER with the real admin
@@ -67,3 +65,5 @@ topic write config/garage
 topic write homeassistant/device/garage00/config
 topic read cmd/garage/#
 topic read set/garage/#
+# Security+ bus logger (M3a): read with the admin user while debugging
+topic write debug/garage/#

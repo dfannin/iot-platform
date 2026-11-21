@@ -5,7 +5,7 @@
 - Architecture documents (`docs/architecture.md`, `docs/architecture-review.md`).
 - Phase 0: `CLAUDE.md`, `.gitignore`, tool configuration, CI (pytest, ruff, generated-dashboard check, secret check).
 - Phase 1: `mqtt2sqlite`, `mqtt2slack` and the telemetry Grafana files moved from `esp32-monitor/server/` with their history. No change to the code or the server install paths.
-- Phase 6 (under way): plain-text MQTT fallback removed from all three devices (broker tightening step 4). `tools/add_device.py` creates a device's MQTT user (random password, ACL-plan check, backup, keeps file owner and mode, reload) for broker tightening step 2.
+- Phase 6 (under way): plain-text MQTT fallback removed from all three devices (broker tightening step 4). Each device now logs in as its own MQTT user (step 2). Access rules switched on in `conf.d/local.conf`, with `debug/garage/#` added for the garage's bus logger and an install procedure (step 3). `tools/add_device.py` creates a device's MQTT user (random password, ACL-plan check, backup, keeps file owner and mode, reload) for broker tightening step 2.
 - Phase 5: shared Arduino library `esp32-iot-common` v0.1.0; devices switched to it; Minimal SPIFFS partition scheme on every device; door and shed reflashed over USB.
 - Phase 4: links and names for `esp32-shed` (formerly `esp32-monitor`) and `garage-control` (now `esp32-garage/hardware/`, `garage-control` archived); sketches moved locally to `~/src/iot/`.
 - Broker tightening step 5 (brought forward): plain listener 1883 on `127.0.0.1` only; the log showed all devices on TLS 8883. Node-RED retired.
