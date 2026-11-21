@@ -1,0 +1,40 @@
+# Secrets and local configuration (only *.example files are tracked)
+*.ini
+!*.ini.example
+secrets*.toml
+*.env
+.env*
+passwd
+*.passwd
+*.key
+*.pem
+*.crt
+*.p12
+
+# Data
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.har
+
+# Firmware images (served from the server, never in git)
+*.bin
+*.elf
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

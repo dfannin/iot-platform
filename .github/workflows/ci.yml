@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"   # the server's system Python
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pytest -v
+      - name: Generated dashboards are up to date
+        run: |
+          if [ -f grafana/telemetry/build_dashboards.py ]; then
+            python3 grafana/telemetry/build_dashboards.py
+            git diff --exit-code -- grafana/telemetry/dashboards
+          fi
+      - name: No secrets in tracked files
+        run: |
+          ! git grep -nE 'hooks\.slack\.com/services/|xox[abp]-[0-9A-Za-z-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----' -- . ':!.github/workflows/ci.yml'
