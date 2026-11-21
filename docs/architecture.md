@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.16**: architecture and restructure agreed; restructure phases 0–5 done, phase 6 under way |
+| Status | **Draft 0.17**: architecture and restructure agreed; restructure phases 0–5 done, phase 6 under way |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -26,6 +26,7 @@
 | 0.14 | 2026-11-22 | Phase 5 done: door and shed reflashed over USB with the library build and the Minimal SPIFFS layout (door 1,216,012 bytes, 61 %; shed 1,266,784 bytes, 64 %); both reconnected to the broker on TLS 8883 with their settings kept. The garage keeps its current firmware until its next OTA update |
 | 0.15 | 2026-11-22 | Phase 6 step 1 done: plain-text MQTT fallback removed from all three devices (door 4.5.0, shed 1.12.0, garage 2.4.2-m3a; the garage's `MQTT_ALLOW_PLAIN_FALLBACK` option removed), updated over OTA, all on TLS 8883 (O7 done; O11 step 4 done). Known Gaps updated |
 | 0.16 | 2026-11-22 | `tools/add_device.py` (M4, first version) for O11 step 2: runs on the production server, creates a device's MQTT user and prints its `secrets.h` lines for the development machine. The production server and the development machine are separate machines |
+| 0.17 | 2026-11-22 | O11 step 2 done: each device logs in as its own MQTT user. Step 3 prepared: `acl_file` switched on in `conf.d/local.conf`, `acl.example` adds `debug/garage/#` for the garage's bus logger (found by checking every topic the devices use), install and undo procedure in `mosquitto/README.md` |
 
 ## Contents
 
@@ -578,7 +579,7 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 | 3 ✅ | Mosquitto configuration into git from the server's current files, cleaned of secrets, with the ACL plan | iot-platform | None until applied | Broker accepts the configuration |
 | 4 ✅ | `garage-control` → `esp32-garage/hardware/`; archive `garage-control`; rename `esp32-monitor` → `esp32-shed` and update links (including the `esp32-door` and `esp32-garage` links to the old `server/`); locally, move the sketches from `~/Arduino/` to `~/src/iot/` and symlink them back into `~/Arduino/` | esp32-garage, esp32-monitor, all READMEs | None | Links and images render; old URLs redirect |
 | 5 ✅ | Create `esp32-iot-common` with the files that are identical in every device repo (`wifi_diag.*`, `stats_util.h`; `web_wifi.h` differs and stays in the devices); switch devices one at a time, door first. Done: library `v0.1.0` (public); all three devices switched; door and shed reflashed over USB with Minimal SPIFFS (door 61 %, shed 64 % of the 1.9 MB slot), garage already on it | new repository, device repositories | Reflash each device | Each device builds and reports as before |
-| 6 🔄 | ✅ Remove the plain-text MQTT fallback (O7, done 2026-11-22); next: one MQTT user per device and the access rules (O11 steps 2–3); then move MQTT/TLS, NTP, OTA and status into the library, one device at a time | device repositories, library | Reflash | No plain-text connections in the broker log |
+| 6 🔄 | ✅ Remove the plain-text MQTT fallback (O7, done 2026-11-22); ✅ one MQTT user per device (O11 step 2); next: the access rules (O11 step 3); then move MQTT/TLS, NTP, OTA and status into the library, one device at a time | device repositories, library | Reflash | No plain-text connections in the broker log |
 
 **Decisions for the restructure:**
 - **Git history:** kept for moved code with history (`git filter-repo` of `server/`, merged here). `garage-control` has one commit and is copied.
@@ -618,5 +619,5 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 | O7 | TLS-only firmware | Done 2026-11-22: plain-text fallback removed from esp32-door (4.5.0), esp32-shed (1.12.0) and esp32-garage (2.4.2-m3a, with its `MQTT_ALLOW_PLAIN_FALLBACK` option); all reconnected on 8883. Open question: remove `MQTT_INSECURE` (TLS without checking the certificate) when the connection code moves into the library |
 | O8 | Separate IoT WiFi network | Check whether the BGW530 can put the ESP32s on a guest/IoT network isolated from laptops and phones |
 | O9 | Network and server monitoring requirements | Which hosts, which measurements, retention, which alerts; then choose the storage ([§13](#13-network-and-server-monitoring-future)) |
-| O11 | Tighten the broker | Each step checked before the next (`mosquitto/README.md`). Done: connection logging (1); plain listener on `127.0.0.1` only (5); TLS-only firmware (4). To do: one user per device and service (2; `tools/add_device.py` ready; today all devices use the admin user), then access rules from `mosquitto/acl.example` (3) |
+| O11 | Tighten the broker | Each step checked before the next (`mosquitto/README.md`). Done: connection logging (1); one user per device (2: `backyard00`, `shed00`, `garage00`, created with `tools/add_device.py`); TLS-only firmware (4); plain listener on `127.0.0.1` only (5). Ready: access rules (3), `acl_file` in `conf.d/local.conf`, procedure in `mosquitto/README.md` |
 | O10 | Flash/RAM budgets per device | Measure today's builds and set the CI limits. Power classes are deferred (X5) |
