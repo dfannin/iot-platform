@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.13**: architecture and restructure agreed; restructure phases 0–4 done, phase 5 under way |
+| Status | **Draft 0.15**: architecture and restructure agreed; restructure phases 0–5 done, phase 6 under way |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -23,6 +23,8 @@
 | 0.11 | 2026-11-22 | Phase 4 under way: `esp32-monitor` renamed `esp32-shed` (sketch renamed `esp32-shed.ino`, because the Arduino tools need the folder's name); `garage-control` copied into `esp32-garage/hardware/`; links updated; ESP32 core pinned to 3.3.13 in all three device repos. Still to do: archive `garage-control`, local move of the sketches to `~/src/iot/` |
 | 0.12 | 2026-11-22 | Phase 4 done: `garage-control` archived; the three sketches moved locally to `~/src/iot/` (symlinked into `~/Arduino/`); `esp32-shed` builds from there with the same size as before (1,266,700 bytes, 96 %) |
 | 0.13 | 2026-11-22 | Phase 5 under way: `esp32-iot-common` v0.1.0 (public; `wifi_diag`, `stats_util`), devices switched one PR each. §6.1: all devices use the Minimal SPIFFS partition scheme (1.9 MB app slots; no device uses SPIFFS) and the library has no board-specific code (the boards differ); A10 updated |
+| 0.14 | 2026-11-22 | Phase 5 done: door and shed reflashed over USB with the library build and the Minimal SPIFFS layout (door 1,216,012 bytes, 61 %; shed 1,266,784 bytes, 64 %); both reconnected to the broker on TLS 8883 with their settings kept. The garage keeps its current firmware until its next OTA update |
+| 0.15 | 2026-11-22 | Phase 6 step 1 done: plain-text MQTT fallback removed from all three devices (door 4.5.0, shed 1.12.0, garage 2.4.2-m3a; the garage's `MQTT_ALLOW_PLAIN_FALLBACK` option removed), updated over OTA, all on TLS 8883 (O7 done; O11 step 4 done). Known Gaps updated |
 
 ## Contents
 
@@ -461,7 +463,7 @@ The aim is **reasonable protection for a home system**: an attacker on the inter
 
 ### Known Gaps
 
-- **Plain-text fallback in the current firmware.** Today's devices fall back to unencrypted MQTT if TLS fails, which would let an attacker on the LAN force plain text (T2). It was a debugging aid and is no longer needed: **decided to remove it** (A9). Until the firmware is updated (O7), the gap remains.
+- **Plain-text fallback:** removed (2026-11-22). All three devices are TLS-only (door 4.5.0, shed 1.12.0, garage 2.4.2-m3a) and the broker accepts plain MQTT only from its own host (O7 done).
 - **Broker (found in phase 3):** no access rules (every user with a password may publish and subscribe to every topic, including `cmd/#`), and all three devices log in as the admin user. Fixed so far: connection logging, and the plain listener 1883 limited to `127.0.0.1` (the log showed all devices on TLS 8883). The order for the rest is in `mosquitto/README.md` (O11).
 - **No outside monitoring of the server itself.** If the server is down, nothing alerts (the same gap router-monitor accepts).
 
@@ -506,7 +508,7 @@ The aim is **reasonable protection for a home system**: an attacker on the inter
 
 ## 15. Repository Layout
 
-Agreed 2026-11-21. The work is done in phases ([§15.2](#152-restructure-phases)); phases 0–4 are done.
+Agreed 2026-11-21. The work is done in phases ([§15.2](#152-restructure-phases)); phases 0–5 are done.
 
 ### 15.1 Repositories
 
@@ -574,8 +576,8 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 | 2 ✅ | Move the shared Grafana alerting; small installer here; router-monitor drops `--shared-alerting` and updates its design (§5.6, §13), `CLAUDE.md` and tests | iot-platform, router-monitor | Re-install the same files | `/etc/grafana/provisioning/alerting/` unchanged; contact-point test reaches Slack |
 | 3 ✅ | Mosquitto configuration into git from the server's current files, cleaned of secrets, with the ACL plan | iot-platform | None until applied | Broker accepts the configuration |
 | 4 ✅ | `garage-control` → `esp32-garage/hardware/`; archive `garage-control`; rename `esp32-monitor` → `esp32-shed` and update links (including the `esp32-door` and `esp32-garage` links to the old `server/`); locally, move the sketches from `~/Arduino/` to `~/src/iot/` and symlink them back into `~/Arduino/` | esp32-garage, esp32-monitor, all READMEs | None | Links and images render; old URLs redirect |
-| 5 🔄 | Create `esp32-iot-common` with the files that are identical in every device repo (`wifi_diag.*`, `stats_util.h`; `web_wifi.h` differs and stays in the devices); switch devices one at a time, door first. Done: library `v0.1.0` (public), all three devices switched in PRs; all devices on Minimal SPIFFS | new repository, device repositories | Reflash each device | Each device builds and reports as before |
-| 6 | Remove the plain-text MQTT fallback (O7); then move MQTT/TLS, NTP, OTA and status into the library, one device at a time | device repositories, library | Reflash | No plain-text connections in the broker log |
+| 5 ✅ | Create `esp32-iot-common` with the files that are identical in every device repo (`wifi_diag.*`, `stats_util.h`; `web_wifi.h` differs and stays in the devices); switch devices one at a time, door first. Done: library `v0.1.0` (public); all three devices switched; door and shed reflashed over USB with Minimal SPIFFS (door 61 %, shed 64 % of the 1.9 MB slot), garage already on it | new repository, device repositories | Reflash each device | Each device builds and reports as before |
+| 6 🔄 | ✅ Remove the plain-text MQTT fallback (O7, done 2026-11-22); next: one MQTT user per device and the access rules (O11 steps 2–3); then move MQTT/TLS, NTP, OTA and status into the library, one device at a time | device repositories, library | Reflash | No plain-text connections in the broker log |
 
 **Decisions for the restructure:**
 - **Git history:** kept for moved code with history (`git filter-repo` of `server/`, merged here). `garage-control` has one commit and is copied.
@@ -612,8 +614,8 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 | O4 | IPv6 test | Does the gateway give the server a public IPv6 address and allow an inbound IPv6 port? If so, plain WireGuard is possible with no third party |
 | O5 | Retire Node-RED | Done 2026-11-21: stopped and no longer used; the broker log shows no other clients |
 | O6 | Control service security | Users and roles, which commands need confirmation, rate limits |
-| O7 | TLS-only firmware | Decided (A9); to do: remove the plain-text MQTT fallback from `esp32-door`, `esp32-shed` and `esp32-garage` (then in `esp32-iot-common`); plain text only on the broker's `localhost` listener |
+| O7 | TLS-only firmware | Done 2026-11-22: plain-text fallback removed from esp32-door (4.5.0), esp32-shed (1.12.0) and esp32-garage (2.4.2-m3a, with its `MQTT_ALLOW_PLAIN_FALLBACK` option); all reconnected on 8883. Open question: remove `MQTT_INSECURE` (TLS without checking the certificate) when the connection code moves into the library |
 | O8 | Separate IoT WiFi network | Check whether the BGW530 can put the ESP32s on a guest/IoT network isolated from laptops and phones |
 | O9 | Network and server monitoring requirements | Which hosts, which measurements, retention, which alerts; then choose the storage ([§13](#13-network-and-server-monitoring-future)) |
-| O11 | Tighten the broker | Each step checked before the next (`mosquitto/README.md`). Done: connection logging (1); plain listener on `127.0.0.1` only (5, brought forward: no LAN client used 1883). To do: one user per device and service (2; today all devices use the admin user), access rules from `mosquitto/acl.example` (3), TLS-only firmware (4, O7) |
+| O11 | Tighten the broker | Each step checked before the next (`mosquitto/README.md`). Done: connection logging (1); plain listener on `127.0.0.1` only (5); TLS-only firmware (4). To do: one user per device and service (2; today all devices use the admin user), then access rules from `mosquitto/acl.example` (3) |
 | O10 | Flash/RAM budgets per device | Measure today's builds and set the CI limits. Power classes are deferred (X5) |

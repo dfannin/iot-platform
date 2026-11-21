@@ -43,12 +43,12 @@ diff /etc/mosquitto/mosquitto.conf mosquitto/mosquitto.conf && diff /etc/mosquit
 
 ## Tightening the Broker (Planned Order)
 
-Each step is a separate change, checked before the next. None is part of the restructure's phase 3. **Done: 1 and 5.** Step 5 was brought forward after the log showed that no LAN client uses 1883.
+Each step is a separate change, checked before the next. None is part of the restructure's phase 3. **Done: 1, 4 and 5.** Step 5 was brought forward after the log showed that no LAN client uses 1883.
 
 1. ✅ **Log connections** (in `conf.d/local.conf`). The log shows each client's connection and port, so you can see who still uses 1883. Install and check: see [Step 1 on the Server](#step-1-on-the-server).
 2. **One user per device and service.** Create `backyard00`, `shed00`, `garage00` (and later `control`) with `mosquitto_passwd`; put each device's user in its `secrets.h` and reflash. The planned `add-device` tool (architecture §10) will do this.
 3. **Access rules.** Copy `acl.example` to `/etc/mosquitto/acl` (replace `ADMIN_USER`), add `acl_file /etc/mosquitto/acl` to `conf.d/local.conf`, restart, and watch the log for `denied`.
-4. **TLS-only devices.** Remove the plain-text fallback from the firmware (architecture O7) and check in the log that no device connects on 1883.
+4. ✅ **TLS-only devices.** The plain-text fallback is removed from all three devices (architecture O7; door 4.5.0, shed 1.12.0, garage 2.4.2-m3a), and the log shows all of them on 8883.
 5. ✅ **Plain listener on localhost only:** `listener 1883 127.0.0.1`, for the local services only. Install and check: as step 1 (below), with the backup named `.before-step5`; then confirm both services reconnected (`New client connected from 127.0.0.1 ... as mqtt2slack` and `... as mqtt2sqlite`).
 
 ## Step 1 on the Server
