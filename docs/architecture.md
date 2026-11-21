@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.7**: architecture and restructure agreed; restructure phases 0–1 done |
+| Status | **Draft 0.9**: architecture and restructure agreed; restructure phases 0–3 done |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -17,6 +17,8 @@
 | 0.5 | 2026-11-21 | §5.1 checked against the Home Assistant documentation source: `uniq_id` added to each component (required), availability mapped to the existing `sensor/<loc>/status` last will, cover state template lower-cased to match the defaults, table of the documented rules (topic, required keys, abbreviations, extra keys ignored, retained vs birth message, removal); O2 updated |
 | 0.6 | 2026-11-21 | Repository restructure agreed (§15): layout of this repository, phases 0–6, history kept for moved code, Python services moved as they are, shared library through the Arduino libraries folder and tags, `esp32-monitor` renamed `esp32-shed`, `garage-control` archived |
 | 0.7 | 2026-11-21 | Phases 0 and 1 done: scaffold (CLAUDE.md, CI) and `esp32-monitor/server/` moved here with its history (byte-identical files, 70 tests pass, dashboards regenerate identically). Phase 4 also moves the sketches locally from `~/Arduino/` to `~/src/iot/`, symlinked back into `~/Arduino/` |
+| 0.8 | 2026-11-22 | Phase 2 done: host-wide Grafana alerting moved from router-monitor to `grafana/shared/` with its history, with `build_shared_alerting.py` and `deploy/install-grafana-shared.sh`. Checked on the server: installed files identical to git, installer reported `files changed: 0`, Slack contact-point test works |
+| 0.9 | 2026-11-22 | Phase 3 done: Mosquitto configuration in git (`mosquitto/`), byte-identical to the server's; planned access rules in `mosquitto/acl.example` (not active). Findings added to §12 Known Gaps (no ACL, plain listener on every interface, error-only logging) with the order for fixing them (O11) |
 
 ## Contents
 
@@ -454,6 +456,7 @@ The aim is **reasonable protection for a home system**: an attacker on the inter
 ### Known Gaps
 
 - **Plain-text fallback in the current firmware.** Today's devices fall back to unencrypted MQTT if TLS fails, which would let an attacker on the LAN force plain text (T2). It was a debugging aid and is no longer needed: **decided to remove it** (A9). Until the firmware is updated (O7), the gap remains.
+- **Broker today (found in phase 3):** no access rules (every user with a password may publish and subscribe to every topic, including `cmd/#`), and the plain listener 1883 is open on every interface, with only error logging. The planned order for fixing this is in `mosquitto/README.md` (O11).
 - **No outside monitoring of the server itself.** If the server is down, nothing alerts (the same gap router-monitor accepts).
 
 ## 13. Network and Server Monitoring (Future)
@@ -497,7 +500,7 @@ The aim is **reasonable protection for a home system**: an attacker on the inter
 
 ## 15. Repository Layout
 
-Agreed 2026-11-21. The work is done in phases ([§15.2](#152-restructure-phases)); phases 0 and 1 are done.
+Agreed 2026-11-21. The work is done in phases ([§15.2](#152-restructure-phases)); phases 0–3 are done.
 
 ### 15.1 Repositories
 
@@ -562,8 +565,8 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 |---|---|---|---|---|
 | 0 ✅ | Scaffold: `CLAUDE.md`, `.gitignore` for secrets, CI with `pytest` and `ruff` | iot-platform | None | CI passes |
 | 1 ✅ | Move `esp32-monitor/server/` **with its history** (`git filter-repo`); scripts, install paths and tests unchanged; pointer README in the old place | iot-platform, esp32-monitor | None | Tests pass; files installed from the new place are identical to the server's |
-| 2 | Move the shared Grafana alerting; small installer here; router-monitor drops `--shared-alerting` and updates its design (§5.6, §13), `CLAUDE.md` and tests | iot-platform, router-monitor | Re-install the same files | `/etc/grafana/provisioning/alerting/` unchanged; contact-point test reaches Slack |
-| 3 | Mosquitto configuration into git from the server's current files, cleaned of secrets, with the ACL plan | iot-platform | None until applied | Broker accepts the configuration |
+| 2 ✅ | Move the shared Grafana alerting; small installer here; router-monitor drops `--shared-alerting` and updates its design (§5.6, §13), `CLAUDE.md` and tests | iot-platform, router-monitor | Re-install the same files | `/etc/grafana/provisioning/alerting/` unchanged; contact-point test reaches Slack |
+| 3 ✅ | Mosquitto configuration into git from the server's current files, cleaned of secrets, with the ACL plan | iot-platform | None until applied | Broker accepts the configuration |
 | 4 | `garage-control` → `esp32-garage/hardware/`; archive `garage-control`; rename `esp32-monitor` → `esp32-shed` and update links (including the `esp32-door` and `esp32-garage` links to the old `server/`); locally, move the sketches from `~/Arduino/` to `~/src/iot/` and symlink them back into `~/Arduino/` | esp32-garage, esp32-monitor, all READMEs | None | Links and images render; old URLs redirect |
 | 5 | Create `esp32-iot-common` with the files that are identical in every device repo (`wifi_diag.*`, `stats_util.h`, `web_wifi.h`); switch devices one at a time, door first | new repository, device repositories | Reflash each device | Each device builds and reports as before |
 | 6 | Remove the plain-text MQTT fallback (O7); then move MQTT/TLS, NTP, OTA and status into the library, one device at a time | device repositories, library | Reflash | No plain-text connections in the broker log |
@@ -606,4 +609,5 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 | O7 | TLS-only firmware | Decided (A9); to do: remove the plain-text MQTT fallback from `esp32-door`, `esp32-monitor` and `esp32-garage` (then in `esp32-iot-common`); plain text only on the broker's `localhost` listener |
 | O8 | Separate IoT WiFi network | Check whether the BGW530 can put the ESP32s on a guest/IoT network isolated from laptops and phones |
 | O9 | Network and server monitoring requirements | Which hosts, which measurements, retention, which alerts; then choose the storage ([§13](#13-network-and-server-monitoring-future)) |
+| O11 | Tighten the broker | In order, each checked before the next (`mosquitto/README.md`): connection logging; one user per device and service; access rules from `mosquitto/acl.example`; TLS-only firmware (O7); plain listener on `localhost` only |
 | O10 | Flash/RAM budgets per device | Measure today's builds and set the CI limits. Power classes are deferred (X5) |
