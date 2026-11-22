@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.20**: architecture and restructure agreed; restructure phases 0–5 done, phase 6 under way |
+| Status | **Draft 0.21**: architecture and restructure agreed; restructure phases 0–5 done, phase 6 under way |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -30,6 +30,7 @@
 | 0.18 | 2026-11-22 | O11 done: access rules switched on in production; all clients reconnected as their own users, Grafana without gaps, a simulated garage command reached the device and Slack. Known Gaps updated |
 | 0.19 | 2026-11-22 | Phase 6: MQTT connection moved into the library (`esp32-iot-common` v0.2.0: `IotMqtt` and `retry_schedule.h`, host-tested). All three devices switched and updated over OTA (door 4.6.0, shed 1.13.0, garage 2.5.0-m3a); each reconnected to the broker within seconds of rebooting. `MQTT_INSECURE` removed from the devices (all three had it off). Next library modules: NTP, OTA, web page and `/status` |
 | 0.20 | 2026-11-22 | Phase 6: NTP time and uptime moved into the library (`esp32-iot-common` v0.3.0: `IotTime`, `uptimeMillis()`, `uptimeSeconds()`, host-tested). All three devices switched and updated over OTA (door 4.7.0, shed 1.14.0, garage 2.6.0-m3a); all show the time synced. O7 closed (`MQTT_INSECURE` removed in 0.19). New open items O12 (the same time fields in every device's `/status`) and O13 (date-based firmware versions) |
+| 0.21 | 2026-11-22 | Phase 6: OTA updates and mDNS moved into the library (`esp32-iot-common` v0.4.0: `IotOta`, host-tested). All three devices switched (door 4.8.0, shed 1.15.0, garage 2.7.0-m3a) and each updated twice over OTA, the second time through the library code; `avahi-browse` shows all three with the `_arduino._tcp` service and password-protected uploads. Found in CI: v0.4.0 linked ArduinoOTA and mDNS into every sketch (about 40 KB, even without OTA); v0.5.0 makes `iot_ota.h` an opt-in, header-only module (§6.1) |
 
 ## Contents
 
@@ -227,7 +228,7 @@ A new Arduino library repository, `esp32-iot-common`, holds what every device re
 
 - WiFi connection, retries and diagnostics (`wifi_diag`), statistics (`stats_util`)
 - MQTT over TLS (no plain-text fallback, A9), last will, `sensor/<loc>/status`, reconnect schedule (done in v0.2.0: `IotMqtt`)
-- NTP time and uptime (done in v0.3.0: `IotTime`), mDNS, OTA, the web page frame and `/status` JSON
+- NTP time and uptime (done in v0.3.0: `IotTime`), mDNS and OTA (done in v0.4.0: `IotOta`), the web page frame and `/status` JSON
 - **New:** publishing the discovery message ([§5.1](#51-self-description-home-assistant-discovery)), handling `set/<loc>/<setting>` with validation and NVS storage, publishing `config/<loc>`
 
 Device sketches keep only their own sensors, actuators and alarm logic. The library is installed into the Arduino `libraries/` folder (or added as a git submodule) and has its own version and CI build.
@@ -247,6 +248,7 @@ Each feature is a separate module switched on or off **at compile time** in the 
 ```
 
 - **Required core** (always on): WiFi, MQTT over TLS, NTP, last will/status. Everything else is optional.
+- **Opt-in headers:** a module that pulls in a large part of the ESP32 core is not included by the library's umbrella header; the sketch includes it itself (`#include <iot_ota.h>`), and the module is header-only so no library `.cpp` links it in. Found with OTA: v0.4.0 added about 40 KB to every sketch using the library, with or without OTA. CI compiles each example, so size changes show up in the library's own pull request.
 - **Defaults** suit a mains-powered board; a small or battery device turns features off.
 - **Partition scheme: Minimal SPIFFS on every device** (decided 2026-11-22). On the 4 MB ESP32 it gives two 1.9 MB app slots (running firmware + OTA) instead of 1.25 MB, and 128 KB SPIFFS instead of 1.4 MB. No device stores files in flash (web pages are compiled in; settings live in NVS, which is the same in both layouts), so nothing is lost. The shed firmware went from 96 % of the old slot to about 65 %, the door from 92 % to about 62 %. Changing the layout needs one USB upload per device; OTA cannot change it. Each device repository has a `sketch.yaml` with the board and partition scheme for `arduino-cli`.
 - **Boards differ; the library does not care:** ESP32 DEVKITV1 (ESP-WROOM-32) for the door and the shed, ESP32-DevKitC-V4 (ESP32-WROOM-32UE, external antenna, no user LED) for the garage. The library has no pin numbers, LED handling or board checks; anything board-specific stays in the device's `settings.h` and is passed to the library.
@@ -582,7 +584,7 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 | 3 ✅ | Mosquitto configuration into git from the server's current files, cleaned of secrets, with the ACL plan | iot-platform | None until applied | Broker accepts the configuration |
 | 4 ✅ | `garage-control` → `esp32-garage/hardware/`; archive `garage-control`; rename `esp32-monitor` → `esp32-shed` and update links (including the `esp32-door` and `esp32-garage` links to the old `server/`); locally, move the sketches from `~/Arduino/` to `~/src/iot/` and symlink them back into `~/Arduino/` | esp32-garage, esp32-monitor, all READMEs | None | Links and images render; old URLs redirect |
 | 5 ✅ | Create `esp32-iot-common` with the files that are identical in every device repo (`wifi_diag.*`, `stats_util.h`; `web_wifi.h` differs and stays in the devices); switch devices one at a time, door first. Done: library `v0.1.0` (public); all three devices switched; door and shed reflashed over USB with Minimal SPIFFS (door 61 %, shed 64 % of the 1.9 MB slot), garage already on it | new repository, device repositories | Reflash each device | Each device builds and reports as before |
-| 6 🔄 | ✅ Remove the plain-text MQTT fallback (O7, done 2026-11-22); ✅ one MQTT user per device and ✅ access rules (O11 steps 2–3, broker tightening complete); ✅ MQTT/TLS connection in the library (`v0.2.0`, `IotMqtt`; door 4.6.0, shed 1.13.0, garage 2.5.0-m3a); ✅ NTP time and uptime (`v0.3.0`, `IotTime`; door 4.7.0, shed 1.14.0, garage 2.6.0-m3a); next: OTA and the web page/`/status` into the library, one device at a time | device repositories, library | Reflash | No plain-text connections in the broker log |
+| 6 🔄 | ✅ Remove the plain-text MQTT fallback (O7, done 2026-11-22); ✅ one MQTT user per device and ✅ access rules (O11 steps 2–3, broker tightening complete); ✅ MQTT/TLS connection in the library (`v0.2.0`, `IotMqtt`; door 4.6.0, shed 1.13.0, garage 2.5.0-m3a); ✅ NTP time and uptime (`v0.3.0`, `IotTime`; door 4.7.0, shed 1.14.0, garage 2.6.0-m3a); ✅ OTA and mDNS (`v0.4.0`, `IotOta`; door 4.8.0, shed 1.15.0, garage 2.7.0-m3a; opt-in from `v0.5.0`); next: the web page frame and `/status` (with O12), one device at a time | device repositories, library | Reflash | No plain-text connections in the broker log |
 
 **Decisions for the restructure:**
 - **Git history:** kept for moved code with history (`git filter-repo` of `server/`, merged here). `garage-control` has one commit and is copied.
