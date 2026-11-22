@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.23**: architecture and restructure agreed; restructure phases 0–6 done |
+| Status | **Draft 0.24**: architecture and restructure agreed; restructure phases 0–6 done |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -33,6 +33,7 @@
 | 0.21 | 2026-11-22 | Phase 6: OTA updates and mDNS moved into the library (`esp32-iot-common` v0.4.0: `IotOta`, host-tested). All three devices switched (door 4.8.0, shed 1.15.0, garage 2.7.0-m3a) and each updated twice over OTA, the second time through the library code; `avahi-browse` shows all three with the `_arduino._tcp` service and password-protected uploads. Found in CI: v0.4.0 linked ArduinoOTA and mDNS into every sketch (about 40 KB, even without OTA); v0.5.0 makes `iot_ota.h` an opt-in, header-only module (§6.1) |
 | 0.22 | 2026-11-22 | Phase 6 done: the common `/status` sections (`device`, `network`, `mqtt`) and the text helpers moved into the library (`esp32-iot-common` v0.6.0: `iot_status`, host-tested), one field structure on all three devices (O12 done; the garage's `mqtt.last_error_at_s` became `last_error_uptime`, `mqtt.secure` dropped). Door 4.9.0, shed 1.16.0, garage 2.8.0-m3a updated over OTA; all three report `time` and `time_synced`. The shared web page frame is dropped from the plan: the door and shed build their pages in the sketch and the garage serves a static page with JavaScript, so a shared frame would mean rewriting pages for little gain. Library releases are tagged by CI (`tag` workflow) from `library.properties` |
 | 0.23 | 2026-11-22 | O13 done: device firmware uses date versions `YYMMDD-HHMM` from the git committer time in UTC, with `-dirty` or `-local`, plus a separate `build` field with the commit hash (§6.4, A15); the shared library keeps semantic versions. Rolled out with `esp32-iot-common` v0.7.0 (the first tag created by its `tag` workflow): door `261122-0552`, shed `261122-0556`, garage `261122-0558`, each with its `build` hash on the web page and in `/status` |
+| 0.24 | 2026-11-23 | Shared device web pages (§6.5, A16; reverses the 0.22 decision to keep the pages in each device): one page shell from the library, drawn from `/status`; common cards Device Identity, System Status, Network Settings, MQTT Status; device cards, pages and controls in the device's `device.js`; pages embedded gzip-compressed. `/status` contract written down (§6.6) with the new `device.chip`. Self-description and settings move to the control service work (O2) |
 
 ## Contents
 
@@ -230,7 +231,7 @@ A new Arduino library repository, `esp32-iot-common`, holds what every device re
 
 - WiFi connection, retries and diagnostics (`wifi_diag`), statistics (`stats_util`)
 - MQTT over TLS (no plain-text fallback, A9), last will, `sensor/<loc>/status`, reconnect schedule (done in v0.2.0: `IotMqtt`)
-- NTP time and uptime (done in v0.3.0: `IotTime`), mDNS and OTA (done in v0.4.0: `IotOta`), the common `/status` JSON sections and text helpers (done in v0.6.0: `iot_status`). The web pages stay in each device (decided 2026-11-22: they are built too differently for a shared frame to pay off)
+- NTP time and uptime (done in v0.3.0: `IotTime`), mDNS and OTA (done in v0.4.0: `IotOta`), the common `/status` JSON sections and text helpers (done in v0.6.0: `iot_status`), the web pages (v0.8.0: `iot_web`, §6.5; the 2026-11-22 decision to keep the pages in each device is reversed)
 - **New:** publishing the discovery message ([§5.1](#51-self-description-home-assistant-discovery)), handling `set/<loc>/<setting>` with validation and NVS storage, publishing `config/<loc>`
 
 Device sketches keep only their own sensors, actuators and alarm logic. The library is installed into the Arduino `libraries/` folder (or added as a git submodule) and has its own version and CI build.
@@ -302,6 +303,54 @@ Decided 2026-11-22 (O13). One convention for every device, current and future:
 - **Milestones** (the garage's `-m3a`) are recorded in the device's documents only.
 - **The shared library keeps semantic versions** (`vX.Y.Z`): devices pin it, and a minor step signals a change devices must make. Its tags are created by CI.
 - **Changeover:** done 2026-11-22 in one round (door `261122-0552`, shed `261122-0556`, garage `261122-0558`; the last semantic versions were 4.9.0, 1.16.0 and 2.8.0-m3a). Anything that compares versions now only sees date versions.
+
+### 6.5 Device Web Pages
+
+Decided 2026-11-23 (A16). Every device serves the same pages from the library (`esp32-iot-common` `iot_web.h`, opt-in); a device has no HTML or CSS of its own.
+
+- **One page shell** for every page, served gzip-compressed from flash; the browser draws it from `/status` (§6.6) with the library's script, every 2 s. Nothing outside the device is loaded (no CDN, no web fonts), so the pages work without internet access. The look is the existing one (white container, green rule, `.info` and `.sensor` cards, round status badges, tab menu).
+- **Pages and tabs:** **Home** (`/`), **WiFi** (`/wifi`), the device's own pages, **JSON** (`/status`).
+- **Home page:** Device Identity, the device's sensor cards, System Status, Network Settings, MQTT Status:
+
+| Card | Lines |
+|---|---|
+| **Device Identity** | Device name; chip model (read from the chip, `device.chip`); board (the device's label); firmware with build hash |
+| **System Status** | CPU speed; current time; time sync; uptime; last reset; reconnects (WiFi, MQTT); free memory (now and lowest) |
+| **Network Settings** | WiFi SSID; signal quality (RSSI in dBm); IP address; MAC address; mDNS host name; access point and channel |
+| **MQTT Status** | Status (with how long it has been down); failed attempts and last error, only when there are any; broker; port; username (the client id); status topic; telemetry topic. No encryption line (the port implies TLS) and no client id line |
+| **Sensor cards** | One per entry in `sensors[]`; a default card (name, state badge, every plain field, topic) unless the device registers a card for that sensor `type`. A sensor's own topics are on its card |
+
+- **Device extensions** (the device's `web/device.js`, embedded with the library's `tools/web_embed.py`): title and icon, sensor cards per type, own pages with tabs (shown only when relevant, e.g. the garage's Simulator), banners, and controls built from library parts: buttons (POST, optional confirmation), on/off toggles, forms (number, text, list, checkbox fields; filled from the device without overwriting edits). Device endpoints use the library's login check, result answer (`{ok, result, detail}`) and number checks.
+- **Size:** the shared shell, stylesheet and script are about 8 KB compressed (about 21 KB as files); a device script is a few hundred bytes to a few KB.
+- **Tests:** library host tests for the C++ side; browser tests (headless Chromium in CI) load the real page files against fixture `/status` data.
+- **Order of work:** library v0.8.0, then esp32-door, esp32-shed, esp32-garage, one update each.
+
+### 6.6 Device `/status` Contract
+
+Every device answers `GET /status` with one JSON object; the web pages (§6.5), the registry and the control service (§9) read only this, so a device on another platform (not an ESP32) fits by serving the same object. `device`, `network` and `mqtt` are the same on every device (`esp32-iot-common` `iot_status`); the rest is the device's own.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `device.name` | string | Hub name: MQTT client id and mDNS host name |
+| `device.firmware`, `device.build` | string | Version (§6.4) and short commit hash (empty for `-local`) |
+| `device.chip` | string | Chip model as reported by the chip, e.g. `ESP32-D0WD-V3 rev 3` |
+| `device.board` | string | The board, as labelled by the device (module and antenna cannot be read from the chip) |
+| `device.cpu_speed` | number | MHz |
+| `device.mac`, `device.ip` | string | |
+| `device.uptime` | number | Seconds since boot |
+| `device.time`, `device.time_synced` | string, bool | Local time `YYYY-MM-DDTHH:MM:SS` (`not_synced` before NTP) |
+| `device.reset_reason` | string | `POWERON`, `SOFTWARE`, `BROWNOUT`, `PANIC`, ... |
+| `device.free_heap`, `device.min_free_heap` | number | Bytes |
+| `device.wifi_reconnects` | number | Since boot |
+| `network.ssid`, `network.rssi`, `network.bssid`, `network.channel`, `network.hostname` | string, number | `rssi` in dBm is the signal quality |
+| `mqtt.broker`, `mqtt.port`, `mqtt.user` | string, number | |
+| `mqtt.connected`, `mqtt.connects`, `mqtt.failed_attempts` | bool, number | `connects - 1` is the number of reconnects |
+| `mqtt.disconnected_s` | number, optional | Only while disconnected |
+| `mqtt.last_error`, `mqtt.last_error_uptime` | string, number | Empty / 0 until the first failure |
+| `mqtt.status_topic`, `mqtt.telemetry_topic` | string | |
+| `sensors[]` | array | Each with at least `name`, `type`, `state`, `topic`; any further fields are the device's |
+
+Additions are allowed (readers ignore unknown fields); renaming or removing a field is a contract change recorded here.
 
 ## 7. Charts and Events in Grafana
 
@@ -632,13 +681,14 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 | A13 | Fleet OTA: CI-built images, catalog on the server, update by command with hash check and rollback (M1) | Flash each device from the IDE | Versions visible and updates in one place |
 | A14 | Contract schemas and checker, device simulator, platform self-monitoring, `add-device` onboarding (M2–M4) | Manual checks | Problems caught by tests and alerts; adding a device is one command |
 | A15 | Device firmware versions `YYMMDD-HHMM` from the git committer time in UTC, with `-dirty` / `-local`, and a separate `build` hash ([§6.4](#64-firmware-versions)); the shared library keeps semantic versions | Semantic versions per device; build time; file save time | One convention for every device, sortable as text, no version bumps to forget; the same commit gives the same version everywhere; what changed lives in the README history |
+| A16 | Device web pages from the shared library: one page shell drawn from `/status`, common cards, device extensions in `device.js`, gzip-embedded ([§6.5](#65-device-web-pages)); `/status` as a written contract ([§6.6](#66-device-status-contract)) | Pages in each device (the 0.22 decision); C++ templates building HTML on the device | The same pages and cards on every device; a new device gets working pages from `/status` alone; less RAM per request than building HTML on the device |
 
 ## 17. Open Items
 
 | # | Item | Notes |
 |---|---|---|
 | O1 | Repository restructure | **Done 2026-11-22**: phases 0–6 carried out ([§15.2](#152-restructure-phases)). Later, separate steps: package the Python services; the device self-description (§5.1) and settings (`set/`, `config/`) in the library |
-| O2 | MQTT contract details | Discovery format checked against the Home Assistant docs (done, §5.1). Still open: `sensor/<loc>/status` kept or renamed; payload versioning; the `cmd/<loc>/device` payloads (REBOOT, OTA) |
+| O2 | MQTT contract details | Discovery format checked against the Home Assistant docs (done, §5.1). Still open: `sensor/<loc>/status` kept or renamed; payload versioning; the `cmd/<loc>/device` payloads (REBOOT, OTA) ; the device self-description (§5.1) and settings (`set/`, `config/`) are built together with the control service and registry (decided 2026-11-23: they have no consumer before then; estimated 10–15 KB of flash per device) |
 | O3 | router-monitor events on MQTT | Optional; would add `paho-mqtt` to router-monitor, which is a design change there (its runtime dependency is `requests` only) |
 | O4 | IPv6 test | Does the gateway give the server a public IPv6 address and allow an inbound IPv6 port? If so, plain WireGuard is possible with no third party |
 | O5 | Retire Node-RED | Done 2026-11-21: stopped and no longer used; the broker log shows no other clients |
