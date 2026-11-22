@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.19**: architecture and restructure agreed; restructure phases 0–5 done, phase 6 under way |
+| Status | **Draft 0.20**: architecture and restructure agreed; restructure phases 0–5 done, phase 6 under way |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -29,6 +29,7 @@
 | 0.17 | 2026-11-22 | O11 step 2 done: each device logs in as its own MQTT user. Step 3 prepared: `acl_file` switched on in `conf.d/local.conf`, `acl.example` adds `debug/garage/#` for the garage's bus logger (found by checking every topic the devices use), install and undo procedure in `mosquitto/README.md` |
 | 0.18 | 2026-11-22 | O11 done: access rules switched on in production; all clients reconnected as their own users, Grafana without gaps, a simulated garage command reached the device and Slack. Known Gaps updated |
 | 0.19 | 2026-11-22 | Phase 6: MQTT connection moved into the library (`esp32-iot-common` v0.2.0: `IotMqtt` and `retry_schedule.h`, host-tested). All three devices switched and updated over OTA (door 4.6.0, shed 1.13.0, garage 2.5.0-m3a); each reconnected to the broker within seconds of rebooting. `MQTT_INSECURE` removed from the devices (all three had it off). Next library modules: NTP, OTA, web page and `/status` |
+| 0.20 | 2026-11-22 | Phase 6: NTP time and uptime moved into the library (`esp32-iot-common` v0.3.0: `IotTime`, `uptimeMillis()`, `uptimeSeconds()`, host-tested). All three devices switched and updated over OTA (door 4.7.0, shed 1.14.0, garage 2.6.0-m3a); all show the time synced. O7 closed (`MQTT_INSECURE` removed in 0.19). New open items O12 (the same time fields in every device's `/status`) and O13 (date-based firmware versions) |
 
 ## Contents
 
@@ -226,7 +227,7 @@ A new Arduino library repository, `esp32-iot-common`, holds what every device re
 
 - WiFi connection, retries and diagnostics (`wifi_diag`), statistics (`stats_util`)
 - MQTT over TLS (no plain-text fallback, A9), last will, `sensor/<loc>/status`, reconnect schedule (done in v0.2.0: `IotMqtt`)
-- NTP time, mDNS, OTA, the web page frame and `/status` JSON
+- NTP time and uptime (done in v0.3.0: `IotTime`), mDNS, OTA, the web page frame and `/status` JSON
 - **New:** publishing the discovery message ([§5.1](#51-self-description-home-assistant-discovery)), handling `set/<loc>/<setting>` with validation and NVS storage, publishing `config/<loc>`
 
 Device sketches keep only their own sensors, actuators and alarm logic. The library is installed into the Arduino `libraries/` folder (or added as a git submodule) and has its own version and CI build.
@@ -581,7 +582,7 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 | 3 ✅ | Mosquitto configuration into git from the server's current files, cleaned of secrets, with the ACL plan | iot-platform | None until applied | Broker accepts the configuration |
 | 4 ✅ | `garage-control` → `esp32-garage/hardware/`; archive `garage-control`; rename `esp32-monitor` → `esp32-shed` and update links (including the `esp32-door` and `esp32-garage` links to the old `server/`); locally, move the sketches from `~/Arduino/` to `~/src/iot/` and symlink them back into `~/Arduino/` | esp32-garage, esp32-monitor, all READMEs | None | Links and images render; old URLs redirect |
 | 5 ✅ | Create `esp32-iot-common` with the files that are identical in every device repo (`wifi_diag.*`, `stats_util.h`; `web_wifi.h` differs and stays in the devices); switch devices one at a time, door first. Done: library `v0.1.0` (public); all three devices switched; door and shed reflashed over USB with Minimal SPIFFS (door 61 %, shed 64 % of the 1.9 MB slot), garage already on it | new repository, device repositories | Reflash each device | Each device builds and reports as before |
-| 6 🔄 | ✅ Remove the plain-text MQTT fallback (O7, done 2026-11-22); ✅ one MQTT user per device and ✅ access rules (O11 steps 2–3, broker tightening complete); ✅ MQTT/TLS connection in the library (`v0.2.0`, `IotMqtt`; door 4.6.0, shed 1.13.0, garage 2.5.0-m3a); next: NTP, OTA and the web page/`/status` into the library, one device at a time | device repositories, library | Reflash | No plain-text connections in the broker log |
+| 6 🔄 | ✅ Remove the plain-text MQTT fallback (O7, done 2026-11-22); ✅ one MQTT user per device and ✅ access rules (O11 steps 2–3, broker tightening complete); ✅ MQTT/TLS connection in the library (`v0.2.0`, `IotMqtt`; door 4.6.0, shed 1.13.0, garage 2.5.0-m3a); ✅ NTP time and uptime (`v0.3.0`, `IotTime`; door 4.7.0, shed 1.14.0, garage 2.6.0-m3a); next: OTA and the web page/`/status` into the library, one device at a time | device repositories, library | Reflash | No plain-text connections in the broker log |
 
 **Decisions for the restructure:**
 - **Git history:** kept for moved code with history (`git filter-repo` of `server/`, merged here). `garage-control` has one commit and is copied.
@@ -618,8 +619,10 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 | O4 | IPv6 test | Does the gateway give the server a public IPv6 address and allow an inbound IPv6 port? If so, plain WireGuard is possible with no third party |
 | O5 | Retire Node-RED | Done 2026-11-21: stopped and no longer used; the broker log shows no other clients |
 | O6 | Control service security | Users and roles, which commands need confirmation, rate limits |
-| O7 | TLS-only firmware | Done 2026-11-22: plain-text fallback removed from esp32-door (4.5.0), esp32-shed (1.12.0) and esp32-garage (2.4.2-m3a, with its `MQTT_ALLOW_PLAIN_FALLBACK` option); all reconnected on 8883. Open question: remove `MQTT_INSECURE` (TLS without checking the certificate) when the connection code moves into the library |
+| O7 | TLS-only firmware | Done 2026-11-22: plain-text fallback removed from esp32-door (4.5.0), esp32-shed (1.12.0) and esp32-garage (2.4.2-m3a, with its `MQTT_ALLOW_PLAIN_FALLBACK` option); all reconnected on 8883. `MQTT_INSECURE` (TLS without checking the certificate) removed 2026-11-22 with the move to the library's `IotMqtt` (door 4.6.0, shed 1.13.0, garage 2.5.0-m3a) |
 | O8 | Separate IoT WiFi network | Check whether the BGW530 can put the ESP32s on a guest/IoT network isolated from laptops and phones |
 | O9 | Network and server monitoring requirements | Which hosts, which measurements, retention, which alerts; then choose the storage ([§13](#13-network-and-server-monitoring-future)) |
 | O11 | Tighten the broker | Done 2026-11-22, all five steps (`mosquitto/README.md`): connection logging; one user per device (`tools/add_device.py`); access rules (`acl_file`); TLS-only firmware; plain listener on `127.0.0.1` only. Checked: all clients reconnect as their own users, Grafana without gaps, a garage command reaches the device and Slack |
 | O10 | Flash/RAM budgets per device | Measure today's builds and set the CI limits. Power classes are deferred (X5) |
+| O12 | Same time fields in every `/status` | Requested 2026-11-22. Today only esp32-garage's `/status` JSON has `"time"` (local `YYYY-MM-DDTHH:MM:SS`, `"not_synced"` before the first sync) and `"time_synced"`; the door and shed show them on the web page only. Give all three devices the same fields and structure, best done when `/status` moves into the library |
+| O13 | Date-based firmware versions | Requested 2026-11-22: one version convention for all devices, based on the build date instead of semantic versioning (today door 4.7.0, shed 1.14.0, garage 2.6.0-m3a). To decide: the format (for example `2026.11.22` with a suffix for a second release on the same day), what happens to the garage's milestone suffix (`-m3a`), and whether the version is set by hand or by CI. Grafana and the device registry compare versions as text |
