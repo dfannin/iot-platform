@@ -688,7 +688,7 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 | # | Item | Notes |
 |---|---|---|
 | O1 | Repository restructure | **Done 2026-11-22**: phases 0–6 carried out ([§15.2](#152-restructure-phases)). Later, separate steps: package the Python services; the device self-description (§5.1) and settings (`set/`, `config/`) in the library |
-| O2 | MQTT contract details | Discovery format checked against the Home Assistant docs (done, §5.1). Still open: `sensor/<loc>/status` kept or renamed; payload versioning; the `cmd/<loc>/device` payloads (REBOOT, OTA) ; the device self-description (§5.1) and settings (`set/`, `config/`) are built together with the control service and registry (decided 2026-11-23: they have no consumer before then; estimated 10–15 KB of flash per device) |
+| O2 | MQTT contract details | Discovery format checked against the Home Assistant docs (done, §5.1). Still open: `sensor/<loc>/status` kept or renamed; payload versioning; the `cmd/<loc>/device` payloads (REBOOT, OTA); the device self-description (§5.1) and settings (`set/`, `config/`) are built together with the control service and registry (decided 2026-11-23: they have no consumer before then; estimated 10–15 KB of flash per device) |
 | O3 | router-monitor events on MQTT | Optional; would add `paho-mqtt` to router-monitor, which is a design change there (its runtime dependency is `requests` only) |
 | O4 | IPv6 test | Does the gateway give the server a public IPv6 address and allow an inbound IPv6 port? If so, plain WireGuard is possible with no third party |
 | O5 | Retire Node-RED | Done 2026-11-21: stopped and no longer used; the broker log shows no other clients |
