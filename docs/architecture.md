@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.24**: architecture and restructure agreed; restructure phases 0–6 done |
+| Status | **Draft 0.25**: architecture and restructure agreed; restructure phases 0–6 done |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -34,6 +34,7 @@
 | 0.22 | 2026-11-22 | Phase 6 done: the common `/status` sections (`device`, `network`, `mqtt`) and the text helpers moved into the library (`esp32-iot-common` v0.6.0: `iot_status`, host-tested), one field structure on all three devices (O12 done; the garage's `mqtt.last_error_at_s` became `last_error_uptime`, `mqtt.secure` dropped). Door 4.9.0, shed 1.16.0, garage 2.8.0-m3a updated over OTA; all three report `time` and `time_synced`. The shared web page frame is dropped from the plan: the door and shed build their pages in the sketch and the garage serves a static page with JavaScript, so a shared frame would mean rewriting pages for little gain. Library releases are tagged by CI (`tag` workflow) from `library.properties` |
 | 0.23 | 2026-11-22 | O13 done: device firmware uses date versions `YYMMDD-HHMM` from the git committer time in UTC, with `-dirty` or `-local`, plus a separate `build` field with the commit hash (§6.4, A15); the shared library keeps semantic versions. Rolled out with `esp32-iot-common` v0.7.0 (the first tag created by its `tag` workflow): door `261122-0552`, shed `261122-0556`, garage `261122-0558`, each with its `build` hash on the web page and in `/status` |
 | 0.24 | 2026-11-23 | Shared device web pages (§6.5, A16; reverses the 0.22 decision to keep the pages in each device): one page shell from the library, drawn from `/status`; common cards Device Identity, System Status, Network Settings, MQTT Status; device cards, pages and controls in the device's `device.js`; pages embedded gzip-compressed. `/status` contract written down (§6.6) with the new `device.chip`. Self-description and settings move to the control service work (O2) |
+| 0.25 | 2026-11-23 | Shared web pages done (§6.5): esp32-door, esp32-shed and esp32-garage serve every page from `esp32-iot-common` (v0.8.0; v0.8.1 widens the WiFi signal graph's range for strong signals, found on the garage at −21 dBm). No device has HTML or CSS of its own; each firmware is about 10 KB smaller. Device pages: the shed's I2C page (data moved from `/i2c` to `/api/i2c`, now including the SHT30), the garage's Simulator (same door status as the Home card; opens without a login, every button asks for it) and Bus pages |
 
 ## Contents
 
@@ -323,7 +324,7 @@ Decided 2026-11-23 (A16). Every device serves the same pages from the library (`
 - **Device extensions** (the device's `web/device.js`, embedded with the library's `tools/web_embed.py`): title and icon, sensor cards per type, own pages with tabs (shown only when relevant, e.g. the garage's Simulator), banners, and controls built from library parts: buttons (POST, optional confirmation), on/off toggles, forms (number, text, list, checkbox fields; filled from the device without overwriting edits). Device endpoints use the library's login check, result answer (`{ok, result, detail}`) and number checks.
 - **Size:** the shared shell, stylesheet and script are about 8 KB compressed (about 21 KB as files); a device script is a few hundred bytes to a few KB.
 - **Tests:** library host tests for the C++ side; browser tests (headless Chromium in CI) load the real page files against fixture `/status` data.
-- **Order of work:** library v0.8.0, then esp32-door, esp32-shed, esp32-garage, one update each.
+- **Done 2026-11-23:** library v0.8.0 (v0.8.1: the WiFi signal graph widens its range beyond −95..−25 dBm), then esp32-door (title only; the default door card), esp32-shed (power and environment cards; I2C page with the SHT30, data at `/api/i2c`), esp32-garage (door cards with commands; Simulator page sharing the door status with the Home card, opening without a login while every button needs it; Bus page). Each firmware lost about 10 KB (door 1,218,960 → 1,209,192 bytes; garage 1,259,460 → 1,249,240).
 
 ### 6.6 Device `/status` Contract
 
