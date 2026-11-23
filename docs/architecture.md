@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.25**: architecture and restructure agreed; restructure phases 0–6 done |
+| Status | **Draft 0.26**: architecture and restructure agreed; restructure phases 0–6 done |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -35,6 +35,7 @@
 | 0.23 | 2026-11-22 | O13 done: device firmware uses date versions `YYMMDD-HHMM` from the git committer time in UTC, with `-dirty` or `-local`, plus a separate `build` field with the commit hash (§6.4, A15); the shared library keeps semantic versions. Rolled out with `esp32-iot-common` v0.7.0 (the first tag created by its `tag` workflow): door `261122-0552`, shed `261122-0556`, garage `261122-0558`, each with its `build` hash on the web page and in `/status` |
 | 0.24 | 2026-11-23 | Shared device web pages (§6.5, A16; reverses the 0.22 decision to keep the pages in each device): one page shell from the library, drawn from `/status`; common cards Device Identity, System Status, Network Settings, MQTT Status; device cards, pages and controls in the device's `device.js`; pages embedded gzip-compressed. `/status` contract written down (§6.6) with the new `device.chip`. Self-description and settings move to the control service work (O2) |
 | 0.25 | 2026-11-23 | Shared web pages done (§6.5): esp32-door, esp32-shed and esp32-garage serve every page from `esp32-iot-common` (v0.8.0; v0.8.1 widens the WiFi signal graph's range for strong signals, found on the garage at −21 dBm). No device has HTML or CSS of its own; each firmware is about 10 KB smaller. Device pages: the shed's I2C page (data moved from `/i2c` to `/api/i2c`, now including the SHT30), the garage's Simulator (same door status as the Home card; opens without a login, every button asks for it) and Bus pages |
+| 0.26 | 2026-11-23 | IoT Device Health dashboard: device names link to each node's web page (`http://<device>.local/`), firmware with build hash (new `boots.build`), and a WiFi quality row (signal range, channel and roams, access point timeline and changes). Access points are recorded only when a node changes access point (`ap_events`, kept forever; names later). Gateway pings are not collected: nodes ping only while their WiFi page is open or during a reception test (background ping off). First Grafana views in `telemetry.db` (`v_wifi_5m`, `v_wifi_1h`, `v_ap_events`, `v_ap_current`). A ping service on the server for devices, access points and the router is planned (O9). Garage and door dashboards wait for the garage's M3 work |
 
 ## Contents
 
@@ -696,7 +697,7 @@ Firmware images for OTA live on the server, not in git; the repository holds onl
 | O6 | Control service security | Users and roles, which commands need confirmation, rate limits |
 | O7 | TLS-only firmware | Done 2026-11-22: plain-text fallback removed from esp32-door (4.5.0), esp32-shed (1.12.0) and esp32-garage (2.4.2-m3a, with its `MQTT_ALLOW_PLAIN_FALLBACK` option); all reconnected on 8883. `MQTT_INSECURE` (TLS without checking the certificate) removed 2026-11-22 with the move to the library's `IotMqtt` (door 4.6.0, shed 1.13.0, garage 2.5.0-m3a) |
 | O8 | Separate IoT WiFi network | Check whether the BGW530 can put the ESP32s on a guest/IoT network isolated from laptops and phones |
-| O9 | Network and server monitoring requirements | Which hosts, which measurements, retention, which alerts; then choose the storage ([§13](#13-network-and-server-monitoring-future)) |
+| O9 | Network and server monitoring requirements | Which hosts, which measurements, retention, which alerts; then choose the storage ([§13](#13-network-and-server-monitoring-future)) Planned first piece (2026-11-23): a small ping service on the production server that pings each device, each access point (fixed addresses in a config file on the server, not in git) and the router every 30–60 s and stores latency and loss through mqtt2sqlite, at no cost to the devices (which no longer ping in the background) |
 | O11 | Tighten the broker | Done 2026-11-22, all five steps (`mosquitto/README.md`): connection logging; one user per device (`tools/add_device.py`); access rules (`acl_file`); TLS-only firmware; plain listener on `127.0.0.1` only. Checked: all clients reconnect as their own users, Grafana without gaps, a garage command reaches the device and Slack |
 | O10 | Flash/RAM budgets per device | Measure today's builds and set the CI limits. Power classes are deferred (X5) |
 | O12 | Same time fields in every `/status` | **Done 2026-11-22** with `esp32-iot-common` v0.6.0 (`iot_status`): all three devices have the same `device`, `network` and `mqtt` sections, including `time` and `time_synced`. Requested 2026-11-22. Today only esp32-garage's `/status` JSON has `"time"` (local `YYYY-MM-DDTHH:MM:SS`, `"not_synced"` before the first sync) and `"time_synced"`; the door and shed show them on the web page only. Give all three devices the same fields and structure, best done when `/status` moves into the library |

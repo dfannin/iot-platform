@@ -6,12 +6,14 @@ Build the Grafana dashboards (JSON) for the IoT folder.
 
 writes into grafana/telemetry/dashboards/:
 
-    iot-device-health.json   IoT Device Health   every node: status, last seen, RSSI, uptime, memory, boots
+    iot-device-health.json   IoT Device Health   every node: status, last seen, RSSI, uptime, memory, boots,
+                                                 WiFi quality (signal range, channel, roams, access points)
     doors.json               Door and Gate Status every door/gate node (OPEN/CLOSED states)
     shed-monitor.json        Shed Solar Monitor   the shed's power and environment
 
 All queries use the SQLite data source (frser-sqlite-datasource, uid telemetry-sqlite)
-and the tables written by mqtt2sqlite.py. Edit this script, not the JSON files, then
+and the tables written by mqtt2sqlite.py; new panels use its views (v_..., iot-platform
+CLAUDE.md rule 5). Edit this script, not the JSON files, then
 rebuild and install the JSON files (see services/README.md).
 """
 
@@ -137,6 +139,14 @@ def unit_override(name, unit, **props):
     return {"matcher": {"id": "byName", "options": name}, "properties": p}
 
 
+def device_link(name):
+    """Override: the device name opens the node's own web page (its name is its mDNS host name)."""
+    return {"matcher": {"id": "byName", "options": name},
+            "properties": [{"id": "links", "value": [{"title": "Open ${__value.text}'s web page",
+                                                      "url": "http://${__value.text}.local/",
+                                                      "targetBlank": True}]}]}
+
+
 def timeline(title, sql, desc="", colors=STATE_COLORS, by_hub=True):
     """State timeline: one row per series, colored by state."""
     panel = {"type": "state-timeline", "title": title, "description": desc, "targets": [target(sql)],
@@ -201,24 +211,29 @@ tel AS (SELECT x.* FROM device_5m x JOIN last ON x.hub = last.hub AND x.ts = las
 st AS (SELECT e.hub, e.state FROM state_events e WHERE {latest_event_sql(status_where)}),
 seen AS (SELECT hub, MAX(ts) AS ts FROM (SELECT hub, ts FROM device_5m UNION ALL
          SELECT hub, ts FROM state_events WHERE state != 'OFFLINE') GROUP BY hub),
-boot AS (SELECT hub, firmware, reset_reason, MAX(ts) AS ts FROM boots GROUP BY hub)
+boot AS (SELECT hub, firmware, build, reset_reason, MAX(ts) AS ts FROM boots GROUP BY hub),
+ap AS (SELECT hub, bssid FROM v_ap_current)
 SELECT h.hub AS device, COALESCE(st.state, '?') AS status,
        strftime('%s', 'now') - seen.ts AS "last seen",
-       boot.firmware AS firmware,
+       boot.firmware AS firmware, boot.build AS build,
        COALESCE({RESET_CASE.format(col='tel.reset_reason')}, boot.reset_reason) AS "last reset",
        boot.ts AS "last boot",
-       tel.rssi AS rssi, tel.uptime_s AS uptime,
+       tel.rssi AS rssi, ap.bssid AS "access point", tel.uptime_s AS uptime,
        tel.free_heap AS "free heap", tel.min_free_heap AS "lowest heap",
        tel.mqtt_connects - 1 AS "MQTT reconnects", tel.wifi_reconnects AS "WiFi reconnects"
 FROM hubs h LEFT JOIN tel ON tel.hub = h.hub LEFT JOIN st ON st.hub = h.hub
-LEFT JOIN seen ON seen.hub = h.hub LEFT JOIN boot ON boot.hub = h.hub
+LEFT JOIN seen ON seen.hub = h.hub LEFT JOIN boot ON boot.hub = h.hub LEFT JOIN ap ON ap.hub = h.hub
 ORDER BY h.hub""".strip()
     d.add(table("Devices", devices_sql,
-                "Every node that sends device telemetry or an online/offline status. last_seen is the "
-                "age of its latest message. last_reset: why it last restarted (BROWNOUT = power supply, "
-                "PANIC / WATCHDOG = firmware crash or hang). Reconnect counts are since the last boot.",
+                "Every node that sends device telemetry or an online/offline status. Click a device to "
+                "open its web page (http://<device>.local/). last seen is the age of its latest message. "
+                "firmware and build: the version (YYMMDD-HHMM, the commit time in UTC) and commit hash "
+                "running since the last boot. access point: the one the node is connected to now. last reset: why it last restarted (BROWNOUT = power "
+                "supply, PANIC / WATCHDOG = firmware crash or hang). Reconnect counts are since the "
+                "last boot.",
                 time_cols=("time", "ts", "last boot"), min_width=70,
-                overrides=[colored_text("status", {"ONLINE": "green", "OFFLINE": "red"}),
+                overrides=[device_link("device"),
+                           colored_text("status", {"ONLINE": "green", "OFFLINE": "red"}),
                            colored_text("last reset", RESET_COLORS),
                            unit_override("last seen", "s", **{
                                "custom.cellOptions": {"type": "color-text"},
@@ -283,17 +298,56 @@ WHERE d.{RANGE.replace(' AND ts', ' AND d.ts')} GROUP BY d.hub ORDER BY d.hub"""
                 "short", 0, "WiFi drops and MQTT reconnects since each node's last boot. Rising counts "
                 "mean an unstable connection.", by_hub=True, step=True), 12, 20, 12, 8)
 
-    boots_sql = f"SELECT ts AS time, hub, firmware, reset_reason FROM boots WHERE {RANGE} ORDER BY ts DESC"
+    # WiFi quality, from the nodes' WiFi telemetry (view v_wifi_5m / v_wifi_1h)
+    d.add({"type": "row", "title": "WiFi quality", "collapsed": False, "panels": []}, 0, 28, 24, 1)
+    wifi = f"FROM v_wifi_${{res}} WHERE {RANGE}"
+    d.add(lines("Signal range (average and lowest)",
+                f"SELECT ts AS time, hub || ' avg' AS hub, rssi {wifi} UNION ALL "
+                f"SELECT ts AS time, hub || ' lowest' AS hub, rssi_min {wifi} ORDER BY time", "dBm", 0,
+                "RSSI averaged over each report (every second on the node) and the lowest second. A low "
+                "'lowest' with a good average means short drops, e.g. from interference or movement.",
+                thr=steps(("red", None), ("orange", -80), ("green", -70)), by_hub=True,
+                soft_min=-90, soft_max=-40), 0, 29, 12, 8)
+    d.add(lines("WiFi channel and roams",
+                f"SELECT ts AS time, hub || ' channel' AS hub, channel {wifi} UNION ALL "
+                f"SELECT ts AS time, hub || ' roams' AS hub, roams {wifi} ORDER BY time", "short", 0,
+                "The channel of the access point each node is connected to, and how often it moved to a "
+                "stronger access point since its last boot. A channel change is a move to another "
+                "access point (or the access point changed channel).", by_hub=True, step=True),
+          12, 29, 12, 8)
+
+    # Access points: recorded only when a node changes access point (view v_ap_events)
+    ap_timeline_sql = f"""
+SELECT ts AS time, hub, bssid AS state FROM v_ap_events WHERE {RANGE}
+UNION ALL
+SELECT $__from / 1000 AS time, a.hub, a.bssid FROM v_ap_events a
+WHERE a.ts = (SELECT MAX(b.ts) FROM v_ap_events b WHERE b.hub = a.hub AND b.ts < $__from / 1000)
+ORDER BY time""".strip()
+    d.add(timeline("Access points", ap_timeline_sql,
+                   "The access point (BSSID) each node was connected to. A new segment is a roam or a "
+                   "reconnect to another access point. Recorded only when it changes."), 0, 37, 24, 6)
+    ap_changes_sql = (f"SELECT ts AS time, hub, previous AS \"from\", bssid AS \"to\", channel "
+                      f"FROM v_ap_events WHERE {RANGE} ORDER BY ts DESC")
+    d.add(table("Access point changes", ap_changes_sql,
+                "Every change of access point in the time range (newest first). The first row of a node has "
+                "no 'from': the first access point recorded for it.",
+                overrides=[unit_override("time", "dateTimeAsIso", **{"custom.width": 170})]),
+          0, 43, 24, 6)
+
+    boots_sql = (f"SELECT ts AS time, hub, firmware, build, reset_reason FROM boots WHERE {RANGE} "
+                 "ORDER BY ts DESC")
     d.add(table("Recent boots", boots_sql,
-                "Every restart (the first connect after a boot), with the firmware version and the reset "
-                "reason. SOFTWARE is normal after an OTA update or a WiFi recovery restart.",
+                "Every restart (the first connect after a boot), with the firmware version, build (commit "
+                "hash; empty before date versions) and the reset reason. SOFTWARE is normal after an OTA "
+                "update or a WiFi recovery restart.",
                 overrides=[colored_text("reset_reason", RESET_COLORS),
                            unit_override("time", "dateTimeAsIso", **{"custom.width": 170})]),
-          0, 28, 24, 7)
+          0, 49, 24, 7)
 
     write("iot-device-health.json", "iot-device-health", "IoT Device Health", d.panels,
           templating=[resolution_var()], time_from="now-24h",
-          description="Health of every IoT node: online status, WiFi, uptime, memory and restarts.")
+          description="Health of every IoT node: online status, WiFi, uptime, memory, restarts, WiFi "
+                      "quality and access points. Click a device to open its web page.")
 
 
 # ---------------------------------------------------------------------------

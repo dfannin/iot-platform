@@ -25,7 +25,15 @@ named after the message's "type" field:
   messages) and records every change of a topic's "state" in state_events
   (door OPEN/CLOSED, device ONLINE/OFFLINE, LOW, COLD, ...), and every boot
   (an ONLINE message with reason "Started") in boots, with the firmware
-  version and reset reason. Both are kept forever; they are small.
+  version, build (commit hash) and reset reason. Both are kept forever; they
+  are small.
+* Access point changes: the WiFi telemetry carries the access point the node
+  is connected to (bssid). Only a change is recorded, in ap_events (the
+  latest per node in last_ap), kept forever; the 5-minute rows do not store
+  it. Only the node's own access point is ever recorded, never scan results.
+* Views for Grafana (v_<type>_5m / v_<type>_1h, see VIEWS): fixed column lists
+  over the tables, so new dashboard panels do not depend on the table layout.
+  A column the devices have not sent yet reads as NULL.
 
 Runs under Python 3.10+ with paho-mqtt 2.x. See README.md for installation.
 """
@@ -49,6 +57,7 @@ LOG = logging.getLogger("mqtt2sqlite")
 
 # Column and table names come from the messages, so only allow safe names.
 FIELD_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
+BSSID_RE = re.compile(r"^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")
 TYPE_RE = re.compile(r"^[a-z][a-z0-9_]{0,30}$")
 
 # Fields with a fixed meaning: never stored as measurement columns.
@@ -107,6 +116,7 @@ class Reading:
     interval_s: Optional[int]
     samples: Optional[int]
     values: Dict[str, float]
+    bssid: Optional[str] = None  # wifi telemetry: the access point the node is connected to
 
 
 def _is_number(value) -> bool:
@@ -177,7 +187,12 @@ def parse_message(topic: str, payload: bytes, received: float) -> Optional[Readi
         interval_s=_int_or_none(data.get("interval_s")),
         samples=_int_or_none(data.get("samples")),
         values=values,
+        bssid=_bssid(data.get("bssid")) if mtype == "wifi" else None,
     )
+
+
+def _bssid(value) -> Optional[str]:
+    return value.upper() if isinstance(value, str) and BSSID_RE.match(value) else None
 
 
 def hour_of(ts: int, interval_s: Optional[int], default_interval_s: int) -> int:
@@ -214,6 +229,7 @@ class StateMsg:
     ts: int
     received: int
     firmware: Optional[str] = None
+    build: Optional[str] = None
     reset_reason: Optional[str] = None
 
 
@@ -244,6 +260,7 @@ def parse_state_message(topic: str, payload: bytes, received: float) -> Optional
         ts=ts,
         received=received_s,
         firmware=_text(data.get("firmware"), 32),
+        build=_text(data.get("build"), 16),
         reset_reason=_text(data.get("reset_reason"), 32),
     )
 
@@ -251,6 +268,16 @@ def parse_state_message(topic: str, payload: bytes, received: float) -> Optional
 # ---------------------------------------------------------------------------
 # Storage
 # ---------------------------------------------------------------------------
+
+# Views for Grafana: view name -> (table, columns). Recreated whenever the table
+# gains columns; a column that does not exist yet is selected as NULL.
+VIEWS = {
+    "v_wifi_5m": ("wifi_5m", ["ts", "hub", "interval_s", "samples", "rssi", "rssi_min", "rssi_max", "rssi_std",
+                             "channel", "tx_power_dbm", "roams"]),
+    "v_wifi_1h": ("wifi_1h", ["ts", "hub", "interval_s", "samples", "rssi", "rssi_min", "rssi_max", "rssi_std",
+                             "channel", "tx_power_dbm", "roams"]),
+}
+
 
 def _q(name: str) -> str:
     """Quote an identifier. Names are already restricted by FIELD_RE / TYPE_RE."""
@@ -279,8 +306,24 @@ class Store:
                 topic TEXT PRIMARY KEY, state TEXT NOT NULL, ts INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS boots (
                 ts INTEGER NOT NULL, hub TEXT NOT NULL, firmware TEXT, reset_reason TEXT,
-                received INTEGER, PRIMARY KEY (hub, ts)) WITHOUT ROWID;
+                received INTEGER, build TEXT, PRIMARY KEY (hub, ts)) WITHOUT ROWID;
+            CREATE TABLE IF NOT EXISTS ap_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, hub TEXT NOT NULL,
+                bssid TEXT NOT NULL, channel INTEGER, previous TEXT, received INTEGER);
+            CREATE INDEX IF NOT EXISTS ap_events_hub_ts ON ap_events (hub, ts);
+            CREATE TABLE IF NOT EXISTS last_ap (
+                hub TEXT PRIMARY KEY, bssid TEXT NOT NULL, ts INTEGER NOT NULL);
+            CREATE VIEW IF NOT EXISTS v_ap_events AS
+                SELECT ts, hub, bssid, channel, previous FROM ap_events;
+            CREATE VIEW IF NOT EXISTS v_ap_current AS
+                SELECT hub, bssid, ts FROM last_ap;
         """)
+        # Databases from before the build column: add it (older boots keep NULL)
+        if "build" not in self._table_columns("boots"):
+            LOG.info("Adding column boots.build")
+            self.db.execute("ALTER TABLE boots ADD COLUMN build TEXT")
+            self._columns.pop("boots", None)
+        self.refresh_views()
 
     def close(self) -> None:
         self.db.close()
@@ -295,10 +338,25 @@ class Store:
 
     def _add_columns(self, table: str, names: Iterable[str]) -> None:
         existing = self._table_columns(table)
-        for name in sorted(set(names) - existing):
+        added = sorted(set(names) - existing)
+        for name in added:
             LOG.info("Adding column %s.%s", table, name)
             self.db.execute(f"ALTER TABLE {_q(table)} ADD COLUMN {_q(name)} REAL")
             existing.add(name)
+        if added:
+            self.refresh_views(table)
+
+    def refresh_views(self, table: Optional[str] = None) -> None:
+        """(Re)create the VIEWS over existing tables (only those over `table` if given)."""
+        for view, (source, columns) in VIEWS.items():
+            if table is not None and source != table:
+                continue
+            existing = self._table_columns(source)
+            if not existing:
+                continue  # the table appears with the first message of its type
+            select = ", ".join(_q(c) if c in existing else f"NULL AS {_q(c)}" for c in columns)
+            self.db.execute(f"DROP VIEW IF EXISTS {_q(view)}")
+            self.db.execute(f"CREATE VIEW {_q(view)} AS SELECT {select} FROM {_q(source)}")
 
     def _ensure_raw_table(self, mtype: str, names: Iterable[str]) -> str:
         table = f"{mtype}_5m"
@@ -311,6 +369,9 @@ class Store:
                 " PRIMARY KEY (hub, sensor, ts)) WITHOUT ROWID")
             self.db.execute(f"CREATE INDEX IF NOT EXISTS {_q(table + '_ts')} ON {_q(table)} (ts)")
             self._columns.pop(table, None)
+            self._add_columns(table, names)
+            self.refresh_views(table)
+            return table
         self._add_columns(table, names)
         return table
 
@@ -324,6 +385,9 @@ class Store:
                 " points INTEGER, samples INTEGER, interval_s INTEGER,"
                 " PRIMARY KEY (hub, sensor, ts)) WITHOUT ROWID")
             self._columns.pop(table, None)
+            self._add_columns(table, names)
+            self.refresh_views(table)
+            return table
         self._add_columns(table, names)
         return table
 
@@ -496,6 +560,36 @@ class Store:
             raise
         return changed
 
+    def record_access_points(self, readings: List[Reading]) -> int:
+        """Record a change of a node's access point (bssid) in ap_events.
+
+        Only a change from the last recorded access point (last_ap) adds a row,
+        so repeated reports, restarts and replays add nothing. A report older
+        than the last change is ignored. Returns the number of changes.
+        """
+        wifi = sorted((r for r in readings if r.bssid), key=lambda r: r.ts)
+        if not wifi:
+            return 0
+        changes = 0
+        self.db.execute("BEGIN")
+        try:
+            for r in wifi:
+                row = self.db.execute("SELECT bssid, ts FROM last_ap WHERE hub = ?", (r.hub,)).fetchone()
+                if row is not None and (row[0] == r.bssid or r.ts <= row[1]):
+                    continue
+                channel = r.values.get("channel")
+                self.db.execute(
+                    "INSERT INTO ap_events (ts, hub, bssid, channel, previous, received) VALUES (?, ?, ?, ?, ?, ?)",
+                    (r.ts, r.hub, r.bssid, int(channel) if channel is not None else None,
+                     row[0] if row else None, r.received))
+                self.db.execute("INSERT OR REPLACE INTO last_ap VALUES (?, ?, ?)", (r.hub, r.bssid, r.ts))
+                changes += 1
+            self.db.execute("COMMIT")
+        except Exception:
+            self.db.execute("ROLLBACK")
+            raise
+        return changes
+
     def insert_states(self, msgs: List[StateMsg]) -> Tuple[int, int]:
         """Record state changes and boots in one transaction.
 
@@ -530,9 +624,9 @@ class Store:
                     changes += 1
                 if m.state == "ONLINE" and m.reason == "Started":
                     cur = self.db.execute(
-                        "INSERT OR IGNORE INTO boots (ts, hub, firmware, reset_reason, received)"
-                        " VALUES (?, ?, ?, ?, ?)",
-                        (m.ts, m.hub, m.firmware, m.reset_reason, m.received))
+                        "INSERT OR IGNORE INTO boots (ts, hub, firmware, build, reset_reason, received)"
+                        " VALUES (?, ?, ?, ?, ?, ?)",
+                        (m.ts, m.hub, m.firmware, m.build, m.reset_reason, m.received))
                     boots += max(cur.rowcount, 0)
             self.db.execute("COMMIT")
         except Exception:
@@ -549,6 +643,7 @@ def store_batch(store: Store, readings: List[Reading]) -> int:
     """Insert readings and update the hourly summaries they affect."""
     inserted, touched = store.insert(readings)
     store.rollup(touched)
+    store.record_access_points(readings)
     return inserted
 
 
