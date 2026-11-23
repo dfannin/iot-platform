@@ -1,7 +1,7 @@
 {
   "uid": "iot-device-health",
   "title": "IoT Device Health",
-  "description": "Health of every IoT node: online status, WiFi, uptime, memory and restarts.",
+  "description": "Health of every IoT node: online status, WiFi, uptime, memory, restarts and WiFi quality. Click a device to open its web page.",
   "tags": [
     "iot"
   ],
@@ -61,7 +61,7 @@
     {
       "type": "table",
       "title": "Devices",
-      "description": "Every node that sends device telemetry or an online/offline status. last_seen is the age of its latest message. last_reset: why it last restarted (BROWNOUT = power supply, PANIC / WATCHDOG = firmware crash or hang). Reconnect counts are since the last boot.",
+      "description": "Every node that sends device telemetry or an online/offline status. Click a device to open its web page (http://<device>.local/). last seen is the age of its latest message. firmware and build: the version (YYMMDD-HHMM, the commit time in UTC) and commit hash running since the last boot. last reset: why it last restarted (BROWNOUT = power supply, PANIC / WATCHDOG = firmware crash or hang). Reconnect counts are since the last boot.",
       "targets": [
         {
           "datasource": {
@@ -70,8 +70,8 @@
           },
           "refId": "A",
           "queryType": "table",
-          "rawQueryText": "WITH hubs AS (SELECT hub FROM device_5m UNION SELECT hub FROM state_events WHERE topic LIKE '%/status'),\nlast AS (SELECT hub, MAX(ts) AS ts FROM device_5m GROUP BY hub),\ntel AS (SELECT x.* FROM device_5m x JOIN last ON x.hub = last.hub AND x.ts = last.ts),\nst AS (SELECT e.hub, e.state FROM state_events e WHERE e.id = (SELECT MAX(e2.id) FROM state_events e2 WHERE e2.topic = e.topic) AND e.topic LIKE '%/status'),\nseen AS (SELECT hub, MAX(ts) AS ts FROM (SELECT hub, ts FROM device_5m UNION ALL\n         SELECT hub, ts FROM state_events WHERE state != 'OFFLINE') GROUP BY hub),\nboot AS (SELECT hub, firmware, reset_reason, MAX(ts) AS ts FROM boots GROUP BY hub)\nSELECT h.hub AS device, COALESCE(st.state, '?') AS status,\n       strftime('%s', 'now') - seen.ts AS \"last seen\",\n       boot.firmware AS firmware,\n       COALESCE(CASE tel.reset_reason WHEN 0 THEN 'UNKNOWN' WHEN 1 THEN 'POWERON' WHEN 2 THEN 'EXTERNAL' WHEN 3 THEN 'SOFTWARE' WHEN 4 THEN 'PANIC' WHEN 5 THEN 'INT_WATCHDOG' WHEN 6 THEN 'TASK_WATCHDOG' WHEN 7 THEN 'WATCHDOG' WHEN 8 THEN 'DEEPSLEEP' WHEN 9 THEN 'BROWNOUT' WHEN 10 THEN 'SDIO' END, boot.reset_reason) AS \"last reset\",\n       boot.ts AS \"last boot\",\n       tel.rssi AS rssi, tel.uptime_s AS uptime,\n       tel.free_heap AS \"free heap\", tel.min_free_heap AS \"lowest heap\",\n       tel.mqtt_connects - 1 AS \"MQTT reconnects\", tel.wifi_reconnects AS \"WiFi reconnects\"\nFROM hubs h LEFT JOIN tel ON tel.hub = h.hub LEFT JOIN st ON st.hub = h.hub\nLEFT JOIN seen ON seen.hub = h.hub LEFT JOIN boot ON boot.hub = h.hub\nORDER BY h.hub",
-          "queryText": "WITH hubs AS (SELECT hub FROM device_5m UNION SELECT hub FROM state_events WHERE topic LIKE '%/status'),\nlast AS (SELECT hub, MAX(ts) AS ts FROM device_5m GROUP BY hub),\ntel AS (SELECT x.* FROM device_5m x JOIN last ON x.hub = last.hub AND x.ts = last.ts),\nst AS (SELECT e.hub, e.state FROM state_events e WHERE e.id = (SELECT MAX(e2.id) FROM state_events e2 WHERE e2.topic = e.topic) AND e.topic LIKE '%/status'),\nseen AS (SELECT hub, MAX(ts) AS ts FROM (SELECT hub, ts FROM device_5m UNION ALL\n         SELECT hub, ts FROM state_events WHERE state != 'OFFLINE') GROUP BY hub),\nboot AS (SELECT hub, firmware, reset_reason, MAX(ts) AS ts FROM boots GROUP BY hub)\nSELECT h.hub AS device, COALESCE(st.state, '?') AS status,\n       strftime('%s', 'now') - seen.ts AS \"last seen\",\n       boot.firmware AS firmware,\n       COALESCE(CASE tel.reset_reason WHEN 0 THEN 'UNKNOWN' WHEN 1 THEN 'POWERON' WHEN 2 THEN 'EXTERNAL' WHEN 3 THEN 'SOFTWARE' WHEN 4 THEN 'PANIC' WHEN 5 THEN 'INT_WATCHDOG' WHEN 6 THEN 'TASK_WATCHDOG' WHEN 7 THEN 'WATCHDOG' WHEN 8 THEN 'DEEPSLEEP' WHEN 9 THEN 'BROWNOUT' WHEN 10 THEN 'SDIO' END, boot.reset_reason) AS \"last reset\",\n       boot.ts AS \"last boot\",\n       tel.rssi AS rssi, tel.uptime_s AS uptime,\n       tel.free_heap AS \"free heap\", tel.min_free_heap AS \"lowest heap\",\n       tel.mqtt_connects - 1 AS \"MQTT reconnects\", tel.wifi_reconnects AS \"WiFi reconnects\"\nFROM hubs h LEFT JOIN tel ON tel.hub = h.hub LEFT JOIN st ON st.hub = h.hub\nLEFT JOIN seen ON seen.hub = h.hub LEFT JOIN boot ON boot.hub = h.hub\nORDER BY h.hub",
+          "rawQueryText": "WITH hubs AS (SELECT hub FROM device_5m UNION SELECT hub FROM state_events WHERE topic LIKE '%/status'),\nlast AS (SELECT hub, MAX(ts) AS ts FROM device_5m GROUP BY hub),\ntel AS (SELECT x.* FROM device_5m x JOIN last ON x.hub = last.hub AND x.ts = last.ts),\nst AS (SELECT e.hub, e.state FROM state_events e WHERE e.id = (SELECT MAX(e2.id) FROM state_events e2 WHERE e2.topic = e.topic) AND e.topic LIKE '%/status'),\nseen AS (SELECT hub, MAX(ts) AS ts FROM (SELECT hub, ts FROM device_5m UNION ALL\n         SELECT hub, ts FROM state_events WHERE state != 'OFFLINE') GROUP BY hub),\nboot AS (SELECT hub, firmware, build, reset_reason, MAX(ts) AS ts FROM boots GROUP BY hub)\nSELECT h.hub AS device, COALESCE(st.state, '?') AS status,\n       strftime('%s', 'now') - seen.ts AS \"last seen\",\n       boot.firmware AS firmware, boot.build AS build,\n       COALESCE(CASE tel.reset_reason WHEN 0 THEN 'UNKNOWN' WHEN 1 THEN 'POWERON' WHEN 2 THEN 'EXTERNAL' WHEN 3 THEN 'SOFTWARE' WHEN 4 THEN 'PANIC' WHEN 5 THEN 'INT_WATCHDOG' WHEN 6 THEN 'TASK_WATCHDOG' WHEN 7 THEN 'WATCHDOG' WHEN 8 THEN 'DEEPSLEEP' WHEN 9 THEN 'BROWNOUT' WHEN 10 THEN 'SDIO' END, boot.reset_reason) AS \"last reset\",\n       boot.ts AS \"last boot\",\n       tel.rssi AS rssi, tel.uptime_s AS uptime,\n       tel.free_heap AS \"free heap\", tel.min_free_heap AS \"lowest heap\",\n       tel.mqtt_connects - 1 AS \"MQTT reconnects\", tel.wifi_reconnects AS \"WiFi reconnects\"\nFROM hubs h LEFT JOIN tel ON tel.hub = h.hub LEFT JOIN st ON st.hub = h.hub\nLEFT JOIN seen ON seen.hub = h.hub LEFT JOIN boot ON boot.hub = h.hub\nORDER BY h.hub",
+          "queryText": "WITH hubs AS (SELECT hub FROM device_5m UNION SELECT hub FROM state_events WHERE topic LIKE '%/status'),\nlast AS (SELECT hub, MAX(ts) AS ts FROM device_5m GROUP BY hub),\ntel AS (SELECT x.* FROM device_5m x JOIN last ON x.hub = last.hub AND x.ts = last.ts),\nst AS (SELECT e.hub, e.state FROM state_events e WHERE e.id = (SELECT MAX(e2.id) FROM state_events e2 WHERE e2.topic = e.topic) AND e.topic LIKE '%/status'),\nseen AS (SELECT hub, MAX(ts) AS ts FROM (SELECT hub, ts FROM device_5m UNION ALL\n         SELECT hub, ts FROM state_events WHERE state != 'OFFLINE') GROUP BY hub),\nboot AS (SELECT hub, firmware, build, reset_reason, MAX(ts) AS ts FROM boots GROUP BY hub)\nSELECT h.hub AS device, COALESCE(st.state, '?') AS status,\n       strftime('%s', 'now') - seen.ts AS \"last seen\",\n       boot.firmware AS firmware, boot.build AS build,\n       COALESCE(CASE tel.reset_reason WHEN 0 THEN 'UNKNOWN' WHEN 1 THEN 'POWERON' WHEN 2 THEN 'EXTERNAL' WHEN 3 THEN 'SOFTWARE' WHEN 4 THEN 'PANIC' WHEN 5 THEN 'INT_WATCHDOG' WHEN 6 THEN 'TASK_WATCHDOG' WHEN 7 THEN 'WATCHDOG' WHEN 8 THEN 'DEEPSLEEP' WHEN 9 THEN 'BROWNOUT' WHEN 10 THEN 'SDIO' END, boot.reset_reason) AS \"last reset\",\n       boot.ts AS \"last boot\",\n       tel.rssi AS rssi, tel.uptime_s AS uptime,\n       tel.free_heap AS \"free heap\", tel.min_free_heap AS \"lowest heap\",\n       tel.mqtt_connects - 1 AS \"MQTT reconnects\", tel.wifi_reconnects AS \"WiFi reconnects\"\nFROM hubs h LEFT JOIN tel ON tel.hub = h.hub LEFT JOIN st ON st.hub = h.hub\nLEFT JOIN seen ON seen.hub = h.hub LEFT JOIN boot ON boot.hub = h.hub\nORDER BY h.hub",
           "timeColumns": [
             "time",
             "ts",
@@ -90,6 +90,24 @@
           }
         },
         "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "device"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open ${__value.text}'s web page",
+                    "url": "http://${__value.text}.local/",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          },
           {
             "matcher": {
               "id": "byName",
@@ -862,9 +880,26 @@
       }
     },
     {
-      "type": "table",
-      "title": "Recent boots",
-      "description": "Every restart (the first connect after a boot), with the firmware version and the reset reason. SOFTWARE is normal after an OTA update or a WiFi recovery restart.",
+      "type": "row",
+      "title": "WiFi quality",
+      "collapsed": false,
+      "panels": [],
+      "id": 8,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "telemetry-sqlite"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Ping to the gateway",
+      "description": "Average round trip from each node to the WiFi gateway. The door and garage ping all the time; the shed (power saving) only during reception tests and while its WiFi page is open, so its line has gaps.",
       "targets": [
         {
           "datasource": {
@@ -873,8 +908,359 @@
           },
           "refId": "A",
           "queryType": "table",
-          "rawQueryText": "SELECT ts AS time, hub, firmware, reset_reason FROM boots WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts DESC",
-          "queryText": "SELECT ts AS time, hub, firmware, reset_reason FROM boots WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts DESC",
+          "rawQueryText": "SELECT ts AS time, hub, ping_ms FROM v_wifi_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 AND ping_ms IS NOT NULL ORDER BY ts",
+          "queryText": "SELECT ts AS time, hub, ping_ms FROM v_wifi_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 AND ping_ms IS NOT NULL ORDER BY ts",
+          "timeColumns": [
+            "time",
+            "ts"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "color": {
+            "mode": "palette-classic-by-name"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "showPoints": "never",
+            "axisBorderShow": false,
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 1,
+          "displayName": "${__field.labels.hub}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "hub"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": true
+            }
+          }
+        }
+      ],
+      "id": 9,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "telemetry-sqlite"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Ping loss",
+      "description": "Share of gateway pings without an answer. A few percent means a weak or busy link; it shows trouble before connections drop.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "telemetry-sqlite"
+          },
+          "refId": "A",
+          "queryType": "table",
+          "rawQueryText": "SELECT ts AS time, hub, ping_loss * 100 AS loss FROM v_wifi_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 AND ping_loss IS NOT NULL ORDER BY ts",
+          "queryText": "SELECT ts AS time, hub, ping_loss * 100 AS loss FROM v_wifi_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 AND ping_loss IS NOT NULL ORDER BY ts",
+          "timeColumns": [
+            "time",
+            "ts"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "palette-classic-by-name"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "showPoints": "never",
+            "axisBorderShow": false,
+            "thresholdsStyle": {
+              "mode": "dashed"
+            },
+            "axisSoftMin": 0,
+            "axisSoftMax": 5
+          },
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 2
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "displayName": "${__field.labels.hub}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "hub"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": true
+            }
+          }
+        }
+      ],
+      "id": 10,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "telemetry-sqlite"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 29,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Signal range (average and lowest)",
+      "description": "RSSI averaged over each report (every second on the node) and the lowest second. A low 'lowest' with a good average means short drops, e.g. from interference or movement.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "telemetry-sqlite"
+          },
+          "refId": "A",
+          "queryType": "table",
+          "rawQueryText": "SELECT ts AS time, hub || ' avg' AS hub, rssi FROM v_wifi_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 UNION ALL SELECT ts AS time, hub || ' lowest' AS hub, rssi_min FROM v_wifi_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY time",
+          "queryText": "SELECT ts AS time, hub || ' avg' AS hub, rssi FROM v_wifi_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 UNION ALL SELECT ts AS time, hub || ' lowest' AS hub, rssi_min FROM v_wifi_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY time",
+          "timeColumns": [
+            "time",
+            "ts"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dBm",
+          "color": {
+            "mode": "palette-classic-by-name"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "showPoints": "never",
+            "axisBorderShow": false,
+            "thresholdsStyle": {
+              "mode": "dashed"
+            },
+            "axisSoftMin": -90,
+            "axisSoftMax": -40
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": -80
+              },
+              {
+                "color": "green",
+                "value": -70
+              }
+            ]
+          },
+          "displayName": "${__field.labels.hub}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "hub"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": true
+            }
+          }
+        }
+      ],
+      "id": 11,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "telemetry-sqlite"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 37,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "WiFi channel and roams",
+      "description": "The channel of the access point each node is connected to, and how often it moved to a stronger access point since its last boot. A channel change is a move to another access point (or the access point changed channel).",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "telemetry-sqlite"
+          },
+          "refId": "A",
+          "queryType": "table",
+          "rawQueryText": "SELECT ts AS time, hub || ' channel' AS hub, channel FROM v_wifi_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 UNION ALL SELECT ts AS time, hub || ' roams' AS hub, roams FROM v_wifi_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY time",
+          "queryText": "SELECT ts AS time, hub || ' channel' AS hub, channel FROM v_wifi_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 UNION ALL SELECT ts AS time, hub || ' roams' AS hub, roams FROM v_wifi_${res} WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY time",
+          "timeColumns": [
+            "time",
+            "ts"
+          ]
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic-by-name"
+          },
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 0,
+            "spanNulls": true,
+            "showPoints": "never",
+            "axisBorderShow": false,
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "lineInterpolation": "stepAfter"
+          },
+          "decimals": 0,
+          "displayName": "${__field.labels.hub}"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "hub"
+            ],
+            "keepFields": false,
+            "naming": {
+              "asLabels": true
+            }
+          }
+        }
+      ],
+      "id": 12,
+      "datasource": {
+        "type": "frser-sqlite-datasource",
+        "uid": "telemetry-sqlite"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 37,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "type": "table",
+      "title": "Recent boots",
+      "description": "Every restart (the first connect after a boot), with the firmware version, build (commit hash; empty before date versions) and the reset reason. SOFTWARE is normal after an OTA update or a WiFi recovery restart.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "frser-sqlite-datasource",
+            "uid": "telemetry-sqlite"
+          },
+          "refId": "A",
+          "queryType": "table",
+          "rawQueryText": "SELECT ts AS time, hub, firmware, build, reset_reason FROM boots WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts DESC",
+          "queryText": "SELECT ts AS time, hub, firmware, build, reset_reason FROM boots WHERE ts >= $__from / 1000 AND ts < $__to / 1000 ORDER BY ts DESC",
           "timeColumns": [
             "time",
             "ts"
@@ -987,14 +1373,14 @@
           "show": false
         }
       },
-      "id": 8,
+      "id": 13,
       "datasource": {
         "type": "frser-sqlite-datasource",
         "uid": "telemetry-sqlite"
       },
       "gridPos": {
         "x": 0,
-        "y": 28,
+        "y": 45,
         "w": 24,
         "h": 7
       }

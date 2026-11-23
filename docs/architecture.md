@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | **Draft 0.25**: architecture and restructure agreed; restructure phases 0–6 done |
+| Status | **Draft 0.26**: architecture and restructure agreed; restructure phases 0–6 done |
 | Date | 2026-11-21 |
 | Scope | Shared server side for every home IoT project: ESP32 devices (shed, doors, garage) and the gateway router monitor |
 
@@ -35,6 +35,7 @@
 | 0.23 | 2026-11-22 | O13 done: device firmware uses date versions `YYMMDD-HHMM` from the git committer time in UTC, with `-dirty` or `-local`, plus a separate `build` field with the commit hash (§6.4, A15); the shared library keeps semantic versions. Rolled out with `esp32-iot-common` v0.7.0 (the first tag created by its `tag` workflow): door `261122-0552`, shed `261122-0556`, garage `261122-0558`, each with its `build` hash on the web page and in `/status` |
 | 0.24 | 2026-11-23 | Shared device web pages (§6.5, A16; reverses the 0.22 decision to keep the pages in each device): one page shell from the library, drawn from `/status`; common cards Device Identity, System Status, Network Settings, MQTT Status; device cards, pages and controls in the device's `device.js`; pages embedded gzip-compressed. `/status` contract written down (§6.6) with the new `device.chip`. Self-description and settings move to the control service work (O2) |
 | 0.25 | 2026-11-23 | Shared web pages done (§6.5): esp32-door, esp32-shed and esp32-garage serve every page from `esp32-iot-common` (v0.8.0; v0.8.1 widens the WiFi signal graph's range for strong signals, found on the garage at −21 dBm). No device has HTML or CSS of its own; each firmware is about 10 KB smaller. Device pages: the shed's I2C page (data moved from `/i2c` to `/api/i2c`, now including the SHT30), the garage's Simulator (same door status as the Home card; opens without a login, every button asks for it) and Bus pages |
+| 0.26 | 2026-11-23 | IoT Device Health dashboard: device names link to each node's web page (`http://<device>.local/`), firmware with build hash (new `boots.build`), and a WiFi quality row (gateway ping and loss, signal range, channel and roams) from the WiFi telemetry that was stored but not shown. First Grafana views in `telemetry.db` (`v_wifi_5m`, `v_wifi_1h`, created by mqtt2sqlite). Garage and door dashboards wait for the garage's M3 work |
 
 ## Contents
 
