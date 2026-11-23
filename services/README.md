@@ -43,7 +43,7 @@ Each message's `type` field picks the table, and each numeric field becomes a co
 | `power_5m` | `solar` and `battery`: `bus_voltage`, `current`, `power`, each with `_min` / `_max` | 2 years (`raw_retention_days`) |
 | `env_5m` | `env`: `temperature_c`, `humidity`, each with `_min` / `_max` | 2 years |
 | `device_5m` | `device` (every node): `rssi`, `uptime_s`, `free_heap`, `min_free_heap`, `mqtt_connects`, `wifi_reconnects`, `reset_reason` | 2 years |
-| `wifi_5m` | `wifi` (every node): `rssi` with `_min` / `_max` / `_std`, `ping_sent`, `ping_ms`, `ping_ms_max`, `ping_loss` (only from nodes that ping the gateway), `channel`, `tx_power_dbm`, `roams` | 2 years |
+| `wifi_5m` | `wifi` (every node): `rssi` with `_min` / `_max` / `_std`, `channel`, `tx_power_dbm`, `roams`. Gateway pings are not collected: a node pings only while its WiFi page is open or during a reception test | 2 years |
 | `wifi_test_5m` | `wifi_test`: reception test results | 2 years |
 | `garage_door_5m` | `garage_door`: ultrasonic distance (`distance_cm`, `_min` / `_max`), misses, opener link frames and errors | 2 years |
 | `power_1h`, `env_1h`, `device_1h`, `wifi_1h`, ... | Hourly summaries: weighted averages, the lowest `_min` and highest `_max` | Forever |
@@ -62,8 +62,8 @@ Notes:
 - A 5-minute point is stamped at the **end** of its interval (`ts`). It is counted in the hour that contains the **middle** of the interval, so a point at 10:00:03 belongs to 09:00–10:00.
 - In/out totals are calculated from 5-minute averages. If the current changes direction within an interval, only the net amount is counted.
 - The solar `power` uses the battery voltage, because the Keeper 1220 is common-positive (see the [esp32-shed README](https://github.com/dfannin/esp32-shed#readme)), so solar energy reads about 35 % low. The battery values are accurate.
-- **The database follows the firmware.** A new numeric field from the firmware becomes a new column automatically, and a new `type` becomes a new table. Text fields (such as the WiFi `bssid`) are not stored.
-- **Views for Grafana:** `v_wifi_5m` and `v_wifi_1h` select a fixed list of columns from the WiFi tables (`VIEWS` in `mqtt2sqlite.py`). New dashboard panels read views, not tables (iot-platform CLAUDE.md rule 5), so they keep working when the tables change. A column no node has sent yet reads as `NULL`. The service creates and updates the views itself.
+- **The database follows the firmware.** A new numeric field from the firmware becomes a new column automatically, and a new `type` becomes a new table. Text fields are not stored in these tables (the WiFi `bssid` is recorded as access point changes, below).
+- **Views for Grafana:** `v_wifi_5m` and `v_wifi_1h` (and `v_ap_events`, `v_ap_current`, below) select a fixed list of columns from the WiFi tables (`VIEWS` in `mqtt2sqlite.py`). New dashboard panels read views, not tables (iot-platform CLAUDE.md rule 5), so they keep working when the tables change. A column no node has sent yet reads as `NULL`. The service creates and updates the views itself.
 
 ### State History (from `sensor/#`)
 
@@ -73,6 +73,10 @@ Notes:
 |-------|-------------|---------|
 | `state_events` | Change of a topic's `state`: door `OPEN`/`CLOSED`, node `ONLINE`/`OFFLINE`, `LOW`, `COLD`, ... | `ts`, `hub`, `sensor`, `topic`, `state`, `previous`, `reason` |
 | `boots` | Restart of a node (an `ONLINE` message with reason `Started`, from esp32-monitor v1.9.2 / esp32-door v4.1 on) | `ts`, `hub`, `firmware`, `build` (commit hash, from the date versions on; added to existing databases automatically), `reset_reason` |
+
+| `ap_events` | Change of a node's access point (the `bssid` in its WiFi telemetry): only when it differs from the last one | `ts`, `hub`, `bssid`, `channel`, `previous` |
+
+`ap_events` (view `v_ap_events`) and `last_ap` (the current access point per node, view `v_ap_current`) come from the WiFi telemetry on `telemetry/#`, not from `sensor/#`, but follow the same rule: one row per change, kept forever. Only the access point a node is connected to is recorded, never the networks a scan sees. Names for access points (instead of the BSSID) are planned for later.
 
 Only changes are stored: the last state of each topic is kept in `last_state`, so periodic updates, restarts of the service and retained replays add nothing. `alerts` (written by `mqtt2slack`) is different: it follows the alerting rules (delays, reminders), while `state_events` is the plain history.
 
@@ -317,11 +321,11 @@ Every node, side by side. A new node appears by itself once it sends device tele
 
 | Panel | Shows |
 |-------|-------|
-| Devices | Per node: status (ONLINE/OFFLINE), last seen, firmware and build, last reset reason, last boot, RSSI, uptime, free and lowest heap, MQTT and WiFi reconnects since boot. Click a device name to open its web page (`http://<device>.local/`) |
+| Devices | Per node: status (ONLINE/OFFLINE), last seen, firmware and build, last reset reason, last boot, RSSI, access point, uptime, free and lowest heap, MQTT and WiFi reconnects since boot. Click a device name to open its web page (`http://<device>.local/`) |
 | Online / offline | Timeline per node, from the status messages |
 | Telemetry received | Share of the time range covered by telemetry; below 100 % means missed reports |
 | WiFi RSSI, Uptime, Free memory, Reconnects since boot | One line per node |
-| **WiFi quality** row | **Ping to the gateway** and **Ping loss** (the door and garage ping all the time, the shed only during tests or while its WiFi page is open), **Signal range** (average and lowest RSSI per report), **WiFi channel and roams** (a channel change is a move to another access point). From the `v_wifi_5m` / `v_wifi_1h` views |
+| **WiFi quality** row | **Signal range** (average and lowest RSSI per report), **WiFi channel and roams**, **Access points** (timeline of the access point each node used) and **Access point changes** (every roam, from and to). From the `v_wifi_*` and `v_ap_events` views |
 | Recent boots | Every restart with firmware, build and reset reason |
 
 Reset reasons: `POWERON` (power applied), `SOFTWARE` (OTA update or WiFi recovery restart), `EXTERNAL` (reset button), `BROWNOUT` (supply voltage dropped: check the power), `PANIC`, `INT_WATCHDOG`, `TASK_WATCHDOG`, `WATCHDOG` (firmware crash or hang).

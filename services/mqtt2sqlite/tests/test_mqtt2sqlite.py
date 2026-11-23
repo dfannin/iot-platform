@@ -84,9 +84,9 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(m.hour_of(start + 200, None, 300), start)
 
 
-def wifi_msg(epoch, rssi, **extra):
+def wifi_msg(epoch, rssi, channel=9, **extra):
     return payload(hub="backyard00", sensor="wifi", type="wifi", interval_s=300, samples=300,
-                   rssi=rssi, rssi_min=rssi - 3, rssi_max=rssi + 2, channel=9, roams=0, epoch=epoch, **extra)
+                   rssi=rssi, rssi_min=rssi - 3, rssi_max=rssi + 2, channel=channel, roams=0, epoch=epoch, **extra)
 
 
 class StoreTests(unittest.TestCase):
@@ -121,25 +121,53 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(self.query("SELECT current FROM power_5m"), [(-0.5,)])
 
     def test_wifi_views(self):
-        # No WiFi data yet: no view (it is created with the table)
-        self.assertEqual(self.query("SELECT name FROM sqlite_master WHERE type = 'view'"), [])
+        # No WiFi data yet: no WiFi view (it is created with the table)
+        views = {r[0] for r in self.query("SELECT name FROM sqlite_master WHERE type = 'view'")}
+        self.assertNotIn("v_wifi_5m", views)
         self.add("telemetry/backyard/wifi", wifi_msg(NOW, -60))
         cols = [r[1] for r in self.query("PRAGMA table_info(v_wifi_5m)")]
         self.assertEqual(cols, list(m.VIEWS["v_wifi_5m"][1]))
-        # ping_ms not sent yet (e.g. the shed without background ping): NULL
-        self.assertEqual(self.query("SELECT ts, hub, rssi, rssi_min, ping_ms, channel FROM v_wifi_5m"),
+        self.assertNotIn("ping_ms", cols)  # ping is not collected (only on the device's WiFi page)
+        # tx_power_dbm not sent yet: NULL
+        self.assertEqual(self.query("SELECT ts, hub, rssi, rssi_min, tx_power_dbm, channel FROM v_wifi_5m"),
                          [(NOW, "backyard00", -60.0, -63.0, None, 9.0)])
-        # A message with ping fields adds the columns and the view picks them up
-        self.add("telemetry/backyard/wifi", wifi_msg(NOW + 300, -61, ping_sent=300, ping_ms=4.5, ping_ms_max=20,
-                                                     ping_loss=0.01))
-        self.assertEqual(self.query("SELECT ping_ms, ping_loss FROM v_wifi_5m ORDER BY ts"),
-                         [(None, None), (4.5, 0.01)])
+        # A message with the field adds the column and the view picks it up
+        self.add("telemetry/backyard/wifi", wifi_msg(NOW + 300, -61, tx_power_dbm=19.5))
+        self.assertEqual(self.query("SELECT tx_power_dbm FROM v_wifi_5m ORDER BY ts"), [(None,), (19.5,)])
         # The hourly view follows the hourly table
         self.store.rollup({("wifi", "backyard00", "wifi", (NOW // HOUR) * HOUR)})
-        self.assertEqual(len(self.query("SELECT rssi, ping_ms FROM v_wifi_1h")), 1)
+        self.assertEqual(len(self.query("SELECT rssi, tx_power_dbm FROM v_wifi_1h")), 1)
         # A restart (new Store) keeps the views working
         other = m.Store(self.path)
         self.assertEqual(len(other.db.execute("SELECT * FROM v_wifi_5m").fetchall()), 2)
+        other.close()
+
+    def test_access_point_changes_only(self):
+        ap1, ap2 = "80:69:1a:1d:e1:8c", "24:A4:3C:AA:CE:5A"
+        for i, bssid in enumerate([ap1, ap1, ap1, ap2, ap2, ap1]):
+            self.add("telemetry/backyard/wifi", wifi_msg(NOW + 300 * i, -60, bssid=bssid, channel=9 if bssid == ap1
+                                                         else 11))
+        self.assertEqual(self.query("SELECT ts, hub, bssid, channel, previous FROM v_ap_events ORDER BY ts"), [
+            (NOW, "backyard00", "80:69:1A:1D:E1:8C", 9, None),  # stored in capitals
+            (NOW + 900, "backyard00", ap2, 11, "80:69:1A:1D:E1:8C"),
+            (NOW + 1500, "backyard00", "80:69:1A:1D:E1:8C", 9, ap2)])
+        self.assertEqual(self.query("SELECT hub, bssid FROM v_ap_current"), [("backyard00", "80:69:1A:1D:E1:8C")])
+        # The 5-minute rows do not store it
+        self.assertNotIn("bssid", self.store._table_columns("wifi_5m"))
+        # A replay, an older report and an invalid value add nothing
+        self.add("telemetry/backyard/wifi", wifi_msg(NOW + 1500, -60, bssid=ap1))
+        self.add("telemetry/backyard/wifi", wifi_msg(NOW + 100, -60, bssid=ap2))
+        self.add("telemetry/backyard/wifi", wifi_msg(NOW + 1800, -60, bssid="not-a-mac"))
+        self.assertEqual(len(self.query("SELECT * FROM ap_events")), 3)
+        # Other message types never record an access point
+        self.add("t/battery", power_msg(NOW + 2000, -0.5, -6.6, bssid=ap2))
+        self.assertEqual(len(self.query("SELECT * FROM ap_events")), 3)
+        # Each node has its own history, and a restart (new Store) keeps the last one
+        other = m.Store(self.path)
+        r = m.parse_message("telemetry/shed/wifi", payload(hub="shed00", sensor="wifi", type="wifi", rssi=-61,
+                                                           bssid=ap2, epoch=NOW + 2100), LATER)
+        r2 = m.parse_message("telemetry/backyard/wifi", wifi_msg(NOW + 2100, -60, bssid=ap1), LATER)
+        self.assertEqual(other.record_access_points([r, r2]), 1)
         other.close()
 
     def test_new_field_adds_column(self):

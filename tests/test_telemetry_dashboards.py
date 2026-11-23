@@ -51,7 +51,7 @@ class DashboardQueryTests(unittest.TestCase):
         readings = []
         for i in range(12):
             ts = NOW + 300 * (i + 1)
-            for hub, ping in (("backyard00", True), ("shed00", False), ("garage00", True)):
+            for hub in ("backyard00", "shed00", "garage00"):
                 readings.append(
                     m.parse_message(
                         f"telemetry/{hub}/device",
@@ -86,11 +86,9 @@ class DashboardQueryTests(unittest.TestCase):
                     channel=9,
                     tx_power_dbm=19.5,
                     roams=0,
-                    bssid="11:22:33:44:55:66",
+                    bssid=f"AA:BB:CC:00:00:0{2 if hub == 'backyard00' and i >= 6 else 1}",
                     epoch=ts,
                 )
-                if ping:
-                    wifi.update(ping_sent=300, ping_ms=4.2, ping_ms_max=30, ping_loss=0.01)
                 readings.append(m.parse_message(f"telemetry/{hub}/wifi", msg(**wifi), LATER))
             readings.append(
                 m.parse_message(
@@ -208,13 +206,21 @@ class DashboardQueryTests(unittest.TestCase):
         backyard = devices[0]
         self.assertIn("261122-0552", backyard)
         self.assertIn("244d03e", backyard)  # build
+        self.assertIn("AA:BB:CC:00:00:02", backyard)  # its access point now
+        self.assertIn("AA:BB:CC:00:00:01", devices[2])  # the shed never changed
+        titles = {title for title, _ in r}
+        self.assertFalse(any("Ping" in t for t in titles), "ping is not collected")
+        # Access points: one change for backyard00 (01 -> 02), first records for the others
+        changes = r[("Access point changes", "5m")]
+        self.assertEqual(
+            [(row[1], row[2], row[3]) for row in changes if row[2]],
+            [("backyard00", "AA:BB:CC:00:00:01", "AA:BB:CC:00:00:02")],
+        )
+        self.assertEqual(len(changes), 4)
+        self.assertEqual(
+            {row[1] for row in r[("Access points", "5m")]}, {"backyard00", "garage00", "shed00"}
+        )
         for res in ("5m", "1h"):
-            self.assertEqual(
-                {row[1] for row in r[("Ping to the gateway", res)]},
-                {"backyard00", "garage00"},
-                "the shed sends no ping fields",
-            )
-            self.assertTrue(r[("Ping loss", res)])
             self.assertEqual(
                 {row[1] for row in r[("Signal range (average and lowest)", res)]},
                 {
