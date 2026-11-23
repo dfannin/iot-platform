@@ -25,7 +25,11 @@ named after the message's "type" field:
   messages) and records every change of a topic's "state" in state_events
   (door OPEN/CLOSED, device ONLINE/OFFLINE, LOW, COLD, ...), and every boot
   (an ONLINE message with reason "Started") in boots, with the firmware
-  version and reset reason. Both are kept forever; they are small.
+  version, build (commit hash) and reset reason. Both are kept forever; they
+  are small.
+* Views for Grafana (v_<type>_5m / v_<type>_1h, see VIEWS): fixed column lists
+  over the tables, so new dashboard panels do not depend on the table layout.
+  A column the devices have not sent yet reads as NULL.
 
 Runs under Python 3.10+ with paho-mqtt 2.x. See README.md for installation.
 """
@@ -214,6 +218,7 @@ class StateMsg:
     ts: int
     received: int
     firmware: Optional[str] = None
+    build: Optional[str] = None
     reset_reason: Optional[str] = None
 
 
@@ -244,6 +249,7 @@ def parse_state_message(topic: str, payload: bytes, received: float) -> Optional
         ts=ts,
         received=received_s,
         firmware=_text(data.get("firmware"), 32),
+        build=_text(data.get("build"), 16),
         reset_reason=_text(data.get("reset_reason"), 32),
     )
 
@@ -251,6 +257,18 @@ def parse_state_message(topic: str, payload: bytes, received: float) -> Optional
 # ---------------------------------------------------------------------------
 # Storage
 # ---------------------------------------------------------------------------
+
+# Views for Grafana: view name -> (table, columns). Recreated whenever the table
+# gains columns; a column that does not exist yet is selected as NULL.
+VIEWS = {
+    "v_wifi_5m": ("wifi_5m", ["ts", "hub", "interval_s", "samples", "rssi", "rssi_min", "rssi_max", "rssi_std",
+                             "ping_sent", "ping_ms", "ping_ms_max", "ping_loss", "channel", "tx_power_dbm",
+                             "roams"]),
+    "v_wifi_1h": ("wifi_1h", ["ts", "hub", "interval_s", "samples", "rssi", "rssi_min", "rssi_max", "rssi_std",
+                             "ping_sent", "ping_ms", "ping_ms_max", "ping_loss", "channel", "tx_power_dbm",
+                             "roams"]),
+}
+
 
 def _q(name: str) -> str:
     """Quote an identifier. Names are already restricted by FIELD_RE / TYPE_RE."""
@@ -279,8 +297,14 @@ class Store:
                 topic TEXT PRIMARY KEY, state TEXT NOT NULL, ts INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS boots (
                 ts INTEGER NOT NULL, hub TEXT NOT NULL, firmware TEXT, reset_reason TEXT,
-                received INTEGER, PRIMARY KEY (hub, ts)) WITHOUT ROWID;
+                received INTEGER, build TEXT, PRIMARY KEY (hub, ts)) WITHOUT ROWID;
         """)
+        # Databases from before the build column: add it (older boots keep NULL)
+        if "build" not in self._table_columns("boots"):
+            LOG.info("Adding column boots.build")
+            self.db.execute("ALTER TABLE boots ADD COLUMN build TEXT")
+            self._columns.pop("boots", None)
+        self.refresh_views()
 
     def close(self) -> None:
         self.db.close()
@@ -295,10 +319,25 @@ class Store:
 
     def _add_columns(self, table: str, names: Iterable[str]) -> None:
         existing = self._table_columns(table)
-        for name in sorted(set(names) - existing):
+        added = sorted(set(names) - existing)
+        for name in added:
             LOG.info("Adding column %s.%s", table, name)
             self.db.execute(f"ALTER TABLE {_q(table)} ADD COLUMN {_q(name)} REAL")
             existing.add(name)
+        if added:
+            self.refresh_views(table)
+
+    def refresh_views(self, table: Optional[str] = None) -> None:
+        """(Re)create the VIEWS over existing tables (only those over `table` if given)."""
+        for view, (source, columns) in VIEWS.items():
+            if table is not None and source != table:
+                continue
+            existing = self._table_columns(source)
+            if not existing:
+                continue  # the table appears with the first message of its type
+            select = ", ".join(_q(c) if c in existing else f"NULL AS {_q(c)}" for c in columns)
+            self.db.execute(f"DROP VIEW IF EXISTS {_q(view)}")
+            self.db.execute(f"CREATE VIEW {_q(view)} AS SELECT {select} FROM {_q(source)}")
 
     def _ensure_raw_table(self, mtype: str, names: Iterable[str]) -> str:
         table = f"{mtype}_5m"
@@ -311,6 +350,9 @@ class Store:
                 " PRIMARY KEY (hub, sensor, ts)) WITHOUT ROWID")
             self.db.execute(f"CREATE INDEX IF NOT EXISTS {_q(table + '_ts')} ON {_q(table)} (ts)")
             self._columns.pop(table, None)
+            self._add_columns(table, names)
+            self.refresh_views(table)
+            return table
         self._add_columns(table, names)
         return table
 
@@ -324,6 +366,9 @@ class Store:
                 " points INTEGER, samples INTEGER, interval_s INTEGER,"
                 " PRIMARY KEY (hub, sensor, ts)) WITHOUT ROWID")
             self._columns.pop(table, None)
+            self._add_columns(table, names)
+            self.refresh_views(table)
+            return table
         self._add_columns(table, names)
         return table
 
@@ -530,9 +575,9 @@ class Store:
                     changes += 1
                 if m.state == "ONLINE" and m.reason == "Started":
                     cur = self.db.execute(
-                        "INSERT OR IGNORE INTO boots (ts, hub, firmware, reset_reason, received)"
-                        " VALUES (?, ?, ?, ?, ?)",
-                        (m.ts, m.hub, m.firmware, m.reset_reason, m.received))
+                        "INSERT OR IGNORE INTO boots (ts, hub, firmware, build, reset_reason, received)"
+                        " VALUES (?, ?, ?, ?, ?, ?)",
+                        (m.ts, m.hub, m.firmware, m.build, m.reset_reason, m.received))
                     boots += max(cur.rowcount, 0)
             self.db.execute("COMMIT")
         except Exception:

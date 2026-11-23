@@ -84,6 +84,11 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(m.hour_of(start + 200, None, 300), start)
 
 
+def wifi_msg(epoch, rssi, **extra):
+    return payload(hub="backyard00", sensor="wifi", type="wifi", interval_s=300, samples=300,
+                   rssi=rssi, rssi_min=rssi - 3, rssi_max=rssi + 2, channel=9, roams=0, epoch=epoch, **extra)
+
+
 class StoreTests(unittest.TestCase):
 
     def setUp(self):
@@ -114,6 +119,28 @@ class StoreTests(unittest.TestCase):
         self.add("t/battery", power_msg(NOW, -0.5, -6.6))
         self.assertEqual(self.add("t/battery", power_msg(NOW, 9.9, 99)), 0)
         self.assertEqual(self.query("SELECT current FROM power_5m"), [(-0.5,)])
+
+    def test_wifi_views(self):
+        # No WiFi data yet: no view (it is created with the table)
+        self.assertEqual(self.query("SELECT name FROM sqlite_master WHERE type = 'view'"), [])
+        self.add("telemetry/backyard/wifi", wifi_msg(NOW, -60))
+        cols = [r[1] for r in self.query("PRAGMA table_info(v_wifi_5m)")]
+        self.assertEqual(cols, list(m.VIEWS["v_wifi_5m"][1]))
+        # ping_ms not sent yet (e.g. the shed without background ping): NULL
+        self.assertEqual(self.query("SELECT ts, hub, rssi, rssi_min, ping_ms, channel FROM v_wifi_5m"),
+                         [(NOW, "backyard00", -60.0, -63.0, None, 9.0)])
+        # A message with ping fields adds the columns and the view picks them up
+        self.add("telemetry/backyard/wifi", wifi_msg(NOW + 300, -61, ping_sent=300, ping_ms=4.5, ping_ms_max=20,
+                                                     ping_loss=0.01))
+        self.assertEqual(self.query("SELECT ping_ms, ping_loss FROM v_wifi_5m ORDER BY ts"),
+                         [(None, None), (4.5, 0.01)])
+        # The hourly view follows the hourly table
+        self.store.rollup({("wifi", "backyard00", "wifi", (NOW // HOUR) * HOUR)})
+        self.assertEqual(len(self.query("SELECT rssi, ping_ms FROM v_wifi_1h")), 1)
+        # A restart (new Store) keeps the views working
+        other = m.Store(self.path)
+        self.assertEqual(len(other.db.execute("SELECT * FROM v_wifi_5m").fetchall()), 2)
+        other.close()
 
     def test_new_field_adds_column(self):
         self.add("t/battery", power_msg(NOW, -0.5, -6.6))
@@ -318,6 +345,30 @@ class StateHistoryTests(unittest.TestCase):
         self.add(st, status("ONLINE", NOW + 500, "Reconnected", firmware="4.1", reset_reason="BROWNOUT"), NOW + 500)
         rows = self.store.db.execute("SELECT ts, hub, firmware, reset_reason FROM boots").fetchall()
         self.assertEqual(rows, [(NOW, "backyard00", "4.1", "BROWNOUT")])
+
+    def test_boot_build_recorded(self):
+        st = "sensor/backyard/status"
+        self.add(st, status("ONLINE", NOW, "Started", firmware="261122-0552", build="244d03e",
+                            reset_reason="SOFTWARE"), NOW)
+        self.add(st, status("ONLINE", NOW + 900, "Started", firmware="4.9.0", reset_reason="POWERON"), NOW + 900)
+        rows = self.store.db.execute("SELECT firmware, build FROM boots ORDER BY ts").fetchall()
+        self.assertEqual(rows, [("261122-0552", "244d03e"), ("4.9.0", None)])  # older firmware: no build
+
+    def test_old_boots_table_gets_build_column(self):
+        # A database from before the build column
+        self.store.close()
+        path = os.path.join(self.tmp.name, "old.db")
+        db = sqlite3.connect(path)
+        db.execute("CREATE TABLE boots (ts INTEGER NOT NULL, hub TEXT NOT NULL, firmware TEXT, reset_reason TEXT,"
+                   " received INTEGER, PRIMARY KEY (hub, ts)) WITHOUT ROWID")
+        db.execute("INSERT INTO boots VALUES (?, 'shed00', '1.16.0', 'POWERON', ?)", (NOW, NOW))
+        db.commit()
+        db.close()
+        self.store = m.Store(path)
+        self.add("sensor/shed/status", status("ONLINE", NOW + 60, "Started", firmware="261122-0556",
+                                              build="4e9cb03", reset_reason="SOFTWARE"), NOW + 60)
+        rows = self.store.db.execute("SELECT firmware, build FROM boots ORDER BY ts").fetchall()
+        self.assertEqual(rows, [("1.16.0", None), ("261122-0556", "4e9cb03")])
 
     def test_reboot_without_offline_still_a_boot(self):
         # A quick reboot can go ONLINE -> ONLINE (no state change), but it is a boot
